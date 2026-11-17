@@ -1,0 +1,18 @@
+{
+  "name": "itr-monitor-ambiental-api",
+  "version": "1.0.0",
+  "description": "API do monitor da câmara úmida da ITR Engenharia",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "helmet": "^8.3.0",
+    "pg": "^8.23.1"
+  }
+}
