@@ -9,6 +9,27 @@ dashboard/  logos e materiais do dashboard (Fase 5)
 referencias/ referências visuais
 ```
 
+## Hardware
+
+ESP32 + sensor **SHT4x** (I2C 0x44) + OLED SSD1306 0.96" (I2C 0x3C) + 3 LEDs, com o barramento I2C em 50 kHz.
+
+| Item | Pino |
+|---|---|
+| SDA / SCL (SHT4x e OLED) | GPIO21 / GPIO22, alimentação 3V3 |
+| LED verde | GPIO25 (resistor 220–330 Ω) |
+| LED vermelho | GPIO26 (resistor 220–330 Ω) |
+| LED amarelo | GPIO27 (resistor 220–330 Ω) |
+
+| LEDs | Estado |
+|---|---|
+| Verde | Ótimo ou bom |
+| Amarelo | Médio |
+| Amarelo + vermelho | Ruim |
+| Vermelho | Alerta |
+| Vermelho piscando | Erro: sensor sem resposta em 3 leituras seguidas |
+
+O alarme sonoro fica só no dashboard. O sketch atual é `firmware/fase2_oled_leds`.
+
 ## API (server/)
 
 | Método | Rota | Quem usa | Autenticação |
