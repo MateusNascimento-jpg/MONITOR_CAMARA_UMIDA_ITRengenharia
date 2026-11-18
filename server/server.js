@@ -5,7 +5,8 @@
  *
  * ESP32  → POST /api/leituras         (header x-api-key)
  * Painel → GET  /api/atual            leitura mais recente + estado + "sem dados"
- *          GET  /api/historico        série para os gráficos
+ *          GET  /api/historico        série para os gráficos (período De/Até)
+ *          GET  /api/historico.csv    exporta o período em CSV
  *          GET  /api/limites          limites atuais
  *          PUT  /api/limites          altera limites (header x-admin-token)
  * Coolify → GET /health
@@ -23,6 +24,7 @@ const {
   validarLimites,
   normalizarLimites,
 } = require('./estado');
+const { lerPeriodo, buscarHistorico, gerarCsv } = require('./historico');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.API_KEY;
@@ -158,22 +160,46 @@ app.get('/api/atual', async (req, res, next) => {
   }
 });
 
-// Série histórica para os gráficos (padrão: últimas 24 h; máximo 30 dias)
+// Série histórica para os gráficos.
+// Período: ?de=...&ate=... (ISO 8601 ou epoch ms) ou ?horas=N; padrão: últimas 24 h.
+// Agrupamento: ?agrupamento=auto|bruto|1h|6h|1d|7d (padrão auto).
 app.get('/api/historico', async (req, res, next) => {
   try {
     const deviceId = deviceDe(req.query.device_id);
     if (!deviceId) return erro(res, 'device_id inválido');
-    const horas = req.query.horas === undefined ? 24 : Number(req.query.horas);
-    if (!Number.isInteger(horas) || horas < 1 || horas > 720) return erro(res, 'horas: inteiro de 1 a 720');
+    const periodo = lerPeriodo(req.query);
+    if (periodo.erro) return erro(res, periodo.erro);
 
-    const r = await pool.query(
-      `SELECT temp, umid, medido_em, estado
-         FROM leituras
-        WHERE device_id = $1 AND medido_em >= now() - make_interval(hours => $2)
-        ORDER BY medido_em ASC`,
-      [deviceId, horas]
-    );
-    res.json({ ok: true, device_id: deviceId, horas, leituras: r.rows });
+    const h = await buscarHistorico(pool, deviceId, periodo.de, periodo.ate, req.query.agrupamento);
+    if (h.erro) return erro(res, h.erro);
+
+    res.json({
+      ok: true,
+      device_id: deviceId,
+      de: periodo.de,
+      ate: periodo.ate,
+      agrupamento: h.agrupamento,
+      leituras: h.leituras,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Exporta as leituras do período em CSV (abre direto no Excel)
+app.get('/api/historico.csv', async (req, res, next) => {
+  try {
+    const deviceId = deviceDe(req.query.device_id);
+    if (!deviceId) return erro(res, 'device_id inválido');
+    const periodo = lerPeriodo(req.query);
+    if (periodo.erro) return erro(res, periodo.erro);
+
+    const csv = await gerarCsv(pool, deviceId, periodo.de, periodo.ate);
+    const dia = (d) => d.toISOString().slice(0, 10);
+    const nome = `${deviceId}_${dia(periodo.de)}_${dia(periodo.ate)}.csv`;
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${nome}"`);
+    res.send(csv);
   } catch (e) {
     next(e);
   }

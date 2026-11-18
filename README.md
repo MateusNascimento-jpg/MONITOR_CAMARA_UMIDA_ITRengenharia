@@ -15,10 +15,24 @@ referencias/ referências visuais
 |---|---|---|---|
 | POST | `/api/leituras` | ESP32 | header `x-api-key` |
 | GET | `/api/atual` | Dashboard | — |
-| GET | `/api/historico?horas=24` | Dashboard | — |
+| GET | `/api/historico` | Dashboard | — |
+| GET | `/api/historico.csv` | Dashboard (exportar) | — |
 | GET | `/api/limites` | Dashboard / ESP32 | — |
 | PUT | `/api/limites` | Dashboard (edição) | header `x-admin-token` |
 | GET | `/health` | Coolify | — |
+
+### Histórico (período livre, estilo Grafana)
+
+| Parâmetro | Exemplo | Observação |
+|---|---|---|
+| `de`, `ate` | `2026-11-18T08:00:00-03:00` ou epoch em ms | Sem `ate` = agora; sem `de` = 24 h antes de `ate` |
+| `horas` | `48` | Atalho para "últimas N horas" (usado só sem `de`/`ate`) |
+| `agrupamento` | `auto` (padrão), `bruto`, `1h`, `6h`, `1d`, `7d` | Período máximo: 5 anos |
+
+O `auto` devolve leitura a leitura até 3 dias, e acima disso agrupa: por hora até 30 dias, a cada 6 h até 180 dias, por dia até 3 anos e por semana acima disso.
+Grupos trazem média, mínima, máxima, quantidade de leituras e o pior estado do período. Dias e semanas começam à meia-noite de Brasília.
+`/api/historico.csv` aceita o mesmo período e exporta leitura a leitura (separador `;`, vírgula decimal, horário de Brasília).
+Requer PostgreSQL 14 ou mais novo (`date_bin`).
 
 ### Contrato ESP32 → servidor
 
