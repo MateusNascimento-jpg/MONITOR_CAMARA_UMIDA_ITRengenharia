@@ -28,7 +28,22 @@ ESP32 + sensor **SHT4x** (I2C 0x44) + OLED SSD1306 0.96" (I2C 0x3C) + 3 LEDs, co
 | Vermelho | Alerta |
 | Vermelho piscando | Erro: sensor sem resposta em 3 leituras seguidas |
 
-O alarme sonoro fica só no dashboard. O sketch atual é `firmware/fase2_oled_leds`.
+O alarme sonoro fica só no dashboard.
+
+| Sketch | O que faz |
+|---|---|
+| `firmware/fase2_oled_leds` | Só local: sensor, OLED e LEDs |
+| `firmware/fase3_wifi` | **Atual.** Tudo da Fase 2, mais Wi-Fi, envio HTTPS para a API, fila offline de 24 h e limites vindos do servidor |
+
+Na Fase 3, copie `segredos.exemplo.h` para `segredos.h` e preencha o Wi-Fi e a `API_KEY`. O `segredos.h` não vai para o Git.
+O canto superior direito do OLED mostra o status da rede:
+
+| Indicação | Significado |
+|---|---|
+| `NET` | Tudo ok |
+| `OFF` | Sem Wi-Fi |
+| `API` | Wi-Fi ok, mas o servidor não respondeu |
+| `KEY` | Chave recusada pelo servidor |
 
 ## API (server/)
 
