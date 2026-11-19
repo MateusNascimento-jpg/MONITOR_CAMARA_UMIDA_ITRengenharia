@@ -42,6 +42,7 @@
 #include <ArduinoJson.h>
 #include <time.h>
 #include <math.h>
+#include <esp_system.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "segredos.h"
@@ -77,6 +78,12 @@ const uint32_t I2C_HZ = 50000;
 #define SHT4X_ADDR 0x44
 #define OLED_ADDR  0x3C
 Adafruit_SSD1306 display(128, 64, &Wire, -1, I2C_HZ, I2C_HZ);
+
+// ---- Wi-Fi -----------------------------------------------------------------
+// Potência de transmissão. Menor = pico de corrente menor (evita "Brownout" com
+// alimentação fraca), porém menos alcance. Opções: WIFI_POWER_19_5dBm (padrão do
+// ESP32), WIFI_POWER_15dBm, WIFI_POWER_11dBm, WIFI_POWER_8_5dBm.
+const wifi_power_t POTENCIA_WIFI = WIFI_POWER_11dBm;
 
 // ---- Identificação e tempos -------------------------------------------------
 const char*         DEVICE_ID              = "camara-01";
@@ -153,7 +160,17 @@ unsigned long    bipeTesteAte    = 0;
 volatile bool    botaoApertado   = false;
 volatile unsigned long ultimoToqueBotao = 0;
 
-void desenharTela();   // definida mais abaixo
+// Diagnóstico
+const char*      motivoFalhaSensor = "";
+volatile uint8_t motivoDesconexao  = 0;     // preenchido pelo evento do Wi-Fi
+volatile bool    houveDesconexao   = false;
+bool             pedirVarredura    = false;
+unsigned long    ultimaVarredura   = 0;
+bool             relogioAvisado    = false;
+
+void desenharTela();         // definidas mais abaixo
+void diagnosticoDeBoot();
+void scannerI2C();
 
 // =============================================================================
 // Classificação (mesmas regras da API)
@@ -280,12 +297,25 @@ uint8_t crc8Sht4x(const uint8_t *dados, uint8_t len) {
 bool lerSht4x(float &tempC, float &umid) {
   Wire.beginTransmission(SHT4X_ADDR);
   Wire.write(0xFD);                       // medição de alta precisão
-  if (Wire.endTransmission() != 0) return false;
+  uint8_t r = Wire.endTransmission();
+  if (r != 0) {
+    // 2 = ninguém respondeu no 0x44 (fio solto/trocado, sem 3V3); 5 = barramento travado
+    motivoFalhaSensor = (r == 2) ? "sensor nao respondeu no 0x44 (confira 3V3, GND, SDA/SCL)"
+                      : (r == 5) ? "tempo esgotado no I2C (barramento travado ou cabo longo)"
+                                 : "erro no I2C ao enviar o comando";
+    return false;
+  }
   delay(10);                              // conversão: máx. ~8,3 ms
-  if (Wire.requestFrom(SHT4X_ADDR, 6) != 6) return false;
+  if (Wire.requestFrom(SHT4X_ADDR, 6) != 6) {
+    motivoFalhaSensor = "resposta incompleta do sensor (ruido no cabo? teste I2C_HZ menor)";
+    return false;
+  }
   uint8_t buf[6];
   for (int i = 0; i < 6; i++) buf[i] = Wire.read();
-  if (crc8Sht4x(buf, 2) != buf[2] || crc8Sht4x(buf + 3, 2) != buf[5]) return false;
+  if (crc8Sht4x(buf, 2) != buf[2] || crc8Sht4x(buf + 3, 2) != buf[5]) {
+    motivoFalhaSensor = "dados corrompidos (CRC) — ruido no cabo; teste I2C_HZ menor";
+    return false;
+  }
 
   uint16_t rawT = ((uint16_t)buf[0] << 8) | buf[1];
   uint16_t rawU = ((uint16_t)buf[3] << 8) | buf[4];
@@ -374,15 +404,83 @@ bool relogioOk() {
   return time(nullptr) > EPOCH_MINIMO;
 }
 
+// Traduz os códigos de desconexão mais comuns do ESP32
+const char* explicarDesconexao(uint8_t motivo) {
+  switch (motivo) {
+    case 2:   return "autenticacao expirou";
+    case 8:   return "desconectado pelo proprio ESP32";
+    case 15:  return "senha incorreta (handshake 4-way falhou)";
+    case 201: return "rede nao encontrada (nome errado, longe, ou so 5 GHz)";
+    case 202: return "autenticacao recusada (senha ou seguranca da rede)";
+    case 203: return "associacao recusada pelo roteador";
+    case 204: return "tempo esgotado no handshake (senha incorreta?)";
+    case 205: return "falha de conexao";
+    default:  return "motivo nao mapeado";
+  }
+}
+
+// Evento do Wi-Fi: roda em outra tarefa, por isso só anota e o loop imprime
+void aoEventoWifi(arduino_event_id_t evento, arduino_event_info_t info) {
+  if (evento == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    motivoDesconexao = info.wifi_sta_disconnected.reason;
+    houveDesconexao = true;
+  }
+}
+
+// Lista as redes visíveis — ajuda a ver se a rede aparece e com que sinal
+void varrerRedes() {
+  Serial.println("[wifi] procurando redes visiveis...");
+  int n = WiFi.scanNetworks();
+  if (n <= 0) {
+    Serial.println("[wifi] nenhuma rede encontrada (radio sem sinal? antena? alimentacao?)");
+  } else {
+    bool achou = false;
+    for (int i = 0; i < n; i++) {
+      bool essa = WiFi.SSID(i) == String(WIFI_SSID);
+      achou |= essa;
+      Serial.printf("  %s\"%s\"  sinal %d dBm  canal %d\n",
+                    essa ? ">> " : "   ", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+    }
+    if (!achou) Serial.printf("[wifi] a rede \"%s\" NAO apareceu na lista (confira o nome e se e 2,4 GHz)\n", WIFI_SSID);
+  }
+  WiFi.scanDelete();
+}
+
 void cuidarDoWifi(unsigned long agora) {
+  if (houveDesconexao) {
+    houveDesconexao = false;
+    uint8_t m = motivoDesconexao;
+    Serial.printf("[wifi] falhou/desconectou: codigo %u — %s\n", m, explicarDesconexao(m));
+    if (m == 201) pedirVarredura = true;
+  }
+
   if (WiFi.status() == WL_CONNECTED) {
     if (!wifiConectado) {
       wifiConectado = true;
       houveFalhaEnvio = false;   // rede voltou: a fila pode sair logo, sem esperar 60 s
-      Serial.printf("[wifi] conectado, IP %s\n", WiFi.localIP().toString().c_str());
+      Serial.printf("[wifi] conectado, IP %s, sinal %d dBm\n",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI());
       if (statusRede == REDE_OFF) statusRede = REDE_SEM_API;   // até o primeiro envio ok
     }
+    if (!relogioAvisado && relogioOk()) {
+      relogioAvisado = true;
+      time_t t = time(nullptr);
+      struct tm local;
+      localtime_r(&t, &local);
+      Serial.printf("[ntp] relogio sincronizado: %02d/%02d/%04d %02d:%02d\n",
+                    local.tm_mday, local.tm_mon + 1, local.tm_year + 1900, local.tm_hour, local.tm_min);
+    }
     return;
+  }
+
+  // Rede não encontrada: lista as redes visíveis (no máximo 1 vez por minuto)
+  if (pedirVarredura && agora - ultimaVarredura >= 60000) {
+    pedirVarredura = false;
+    ultimaVarredura = agora;
+    WiFi.disconnect();
+    varrerRedes();
+    WiFi.begin(WIFI_SSID, WIFI_SENHA);
+    ultimaReconexao = millis();
   }
   if (wifiConectado) {
     wifiConectado = false;
@@ -460,7 +558,15 @@ ResultadoEnvio enviar(float t, float u, bool mudanca, time_t ts) {
     return ENVIO_REJEITADO;     // dado inválido: não adianta reenviar
   }
   statusRede = REDE_SEM_API;
-  Serial.printf("[envio] falhou (código %d)\n", codigo);
+  if (codigo < 0) {
+    // Erro antes de o servidor responder: conexão, DNS ou HTTPS
+    char erroTls[120] = "";
+    clienteTls.lastError(erroTls, sizeof(erroTls));
+    Serial.printf("[envio] falhou: %s%s%s\n", HTTPClient::errorToString(codigo).c_str(),
+                  erroTls[0] ? " | TLS: " : "", erroTls);
+  } else {
+    Serial.printf("[envio] falhou: servidor respondeu %d\n", codigo);
+  }
   return ENVIO_FALHOU;
 }
 
@@ -601,16 +707,19 @@ void cicloDeLeitura() {
     bool mudou = estadoAnterior >= 0 && estadoAtual != (Estado)estadoAnterior;
     estadoAnterior = estadoAtual;
 
+    // O primeiro envio espera o Wi-Fi conectar; depois disso vale o intervalo de 10 min
+    bool primeiroPronto = primeiroEnvio && WiFi.status() == WL_CONNECTED;
+    bool periodico = !primeiroEnvio && millis() - ultimoEnvio >= INTERVALO_ENVIO_MS;
     if (mudou) {
       Serial.println("[envio] estado mudou — enviando agora");
       enviarLeituraAtual(t, u, true);
-    } else if (primeiroEnvio || millis() - ultimoEnvio >= INTERVALO_ENVIO_MS) {
+    } else if (primeiroPronto || periodico) {
       enviarLeituraAtual(t, u, false);
     }
   } else {
     if (falhasSeguidas < 255) falhasSeguidas++;
-    Serial.printf("Falha na leitura do SHT4x (%u seguida%s)\n",
-                  falhasSeguidas, falhasSeguidas > 1 ? "s" : "");
+    Serial.printf("Falha na leitura do SHT4x (%u seguida%s): %s\n",
+                  falhasSeguidas, falhasSeguidas > 1 ? "s" : "", motivoFalhaSensor);
     if (falhasSeguidas >= FALHAS_PARA_ERRO) {
       // Sem leitura não há o que enviar; o painel avisa por "sem dados" após 25 min.
       estadoAtual = ERRO;
@@ -646,29 +755,72 @@ void setup() {
   delay(250);
   for (uint8_t pino : leds) digitalWrite(pino, LOW);
 
+  diagnosticoDeBoot();
   carregarLimitesSalvos();
 
   Wire.begin(PINO_SDA, PINO_SCL);
   Wire.setClock(I2C_HZ);
+  scannerI2C();
   oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR, true, false);
-  if (!oledOk) Serial.println("Falha ao iniciar o OLED em 0x3C (seguindo só com Serial e LEDs).");
-  desenharTela();
+  if (!oledOk) Serial.println("[oled] falha ao iniciar no 0x3C (seguindo só com Serial e LEDs)");
+
+  // Lê e mostra o sensor ANTES de ligar o Wi-Fi: se a alimentação não aguentar
+  // o rádio, ao menos a tela e os LEDs já funcionam e o problema fica visível.
+  cicloDeLeitura();
+  ultimaLeitura = millis();
 
   // Wi-Fi (conecta em segundo plano) e relógio por NTP no horário de Brasília
+  Serial.printf("[wifi] ligando o radio e conectando em \"%s\"...\n", WIFI_SSID);
+  WiFi.onEvent(aoEventoWifi);
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(POTENCIA_WIFI);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_SENHA);
   ultimaReconexao = millis();
   configTzTime("<-03>3", "a.st1.ntp.br", "pool.ntp.org");
   clienteTls.setCACert(CERTIFICADOS_RAIZ);
+  Serial.println("[wifi] radio ligado (se a placa reiniciar aqui, e alimentacao)");
+}
 
-  // Espera até 10 s pelo Wi-Fi para o primeiro envio já sair com a rede de pé
-  Serial.printf("[wifi] conectando em \"%s\"", WIFI_SSID);
-  for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) { delay(500); Serial.print("."); }
+// Mostra por que a placa reiniciou e a frequência do cristal
+void diagnosticoDeBoot() {
+  esp_reset_reason_t motivo = esp_reset_reason();
+  const char *txt;
+  switch (motivo) {
+    case ESP_RST_POWERON:  txt = "ligada na energia"; break;
+    case ESP_RST_SW:       txt = "reinicio por software"; break;
+    case ESP_RST_PANIC:    txt = "TRAVOU (erro no programa)"; break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      txt = "TRAVOU (watchdog)"; break;
+    case ESP_RST_BROWNOUT: txt = "QUEDA DE TENSAO (brownout) — alimentacao insuficiente"; break;
+    case ESP_RST_EXT:      txt = "botao EN/RST"; break;
+    default:               txt = "outro"; break;
+  }
+  Serial.printf("[boot] motivo do ultimo reinicio: %s\n", txt);
+  Serial.printf("[boot] cristal: %u MHz | CPU: %u MHz\n", (unsigned)getXtalFrequencyMhz(), (unsigned)getCpuFrequencyMhz());
+
+  if (motivo == ESP_RST_BROWNOUT) {
+    Serial.println("[boot] DICA: cabo USB curto/grosso direto no PC, carregador 5V 1A+,");
+    Serial.println("[boot]       capacitor 470 uF entre 3V3 e GND, ou POTENCIA_WIFI menor.");
+  }
+}
+
+// Lista quem responde no I2C: esperado 0x3C (OLED) e 0x44 (SHT4x)
+void scannerI2C() {
+  bool achouSensor = false, achouOled = false;
+  Serial.print("[i2c] dispositivos:");
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf(" 0x%02X", a);
+      achouSensor |= (a == SHT4X_ADDR);
+      achouOled   |= (a == OLED_ADDR);
+    }
+  }
   Serial.println();
-
-  cicloDeLeitura();
-  ultimaLeitura = millis();
+  if (!achouSensor) Serial.println("[i2c] SHT4x (0x44) NAO encontrado — confira fios do sensor");
+  if (!achouOled)   Serial.println("[i2c] OLED (0x3C) NAO encontrado — confira fios do display");
 }
 
 void loop() {
