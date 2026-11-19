@@ -61,15 +61,16 @@
 // Buzzer ATIVO só tem um tom fixo: se o seu apitar contínuo sozinho quando ligado
 // ao 3,3 V, troque para true e o alarme vira bipes (200 ms a cada 1 s).
 const bool BUZZER_ATIVO = false;
-const uint16_t FREQ_BIPE_TESTE = 2000;   // Hz
+const uint16_t FREQ_BIPE_TESTE = 1397;   // Hz (ressonância do buzzer: soa mais alto)
 const uint8_t  CANAL_BUZZER    = 0;      // canal PWM (LEDC) usado pelo buzzer passivo
 
 // Melodia de alarme (original): arpejo subindo, repetido enquanto durar o ALERTA.
-// hz = 0 é pausa. Ciclo de ~2,4 s.
+// Afinada para a ressonância deste buzzer (~1400 Hz, medida na varredura): as notas
+// longas são Fá6 = 1397 Hz, onde ele soa mais alto. hz = 0 é pausa. Ciclo de ~2,4 s.
 struct Nota { uint16_t hz; uint16_t ms; };
 const Nota MELODIA_ALARME[] = {
-  {1047, 120}, {0, 40}, {1047, 120}, {0, 40}, {1319, 120}, {0, 40}, {1568, 260}, {0, 200},
-  {1568, 120}, {0, 40}, {1319, 120}, {0, 40}, {1568, 260}, {0, 700}
+  { 932, 120}, {0, 40}, { 932, 120}, {0, 40}, {1175, 120}, {0, 40}, {1397, 260}, {0, 200},
+  {1397, 120}, {0, 40}, {1175, 120}, {0, 40}, {1397, 260}, {0, 700}
 };
 const uint8_t TAM_MELODIA = sizeof(MELODIA_ALARME) / sizeof(MELODIA_ALARME[0]);
 
