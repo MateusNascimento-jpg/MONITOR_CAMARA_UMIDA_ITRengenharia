@@ -19,7 +19,8 @@
  *   Botão silenciar: GPIO13 e GND (pull-up interno, sem resistor)
  *
  * Buzzer/botão:
- *   ALERTA → bipa (200 ms a cada 1 s). Botão → silencia até sair do alerta;
+ *   ALERTA → melodia de alarme em loop (buzzer passivo) ou bipes (ativo).
+ *   Botão → silencia até sair do alerta;
  *   se entrar em alerta de novo, volta a tocar. Fora do alerta, o botão dá
  *   um bipe curto de teste. Erro do sensor não toca (só o vermelho pisca).
  *
@@ -55,10 +56,20 @@
 #define PINO_BUZZER       14
 #define PINO_BOTAO        13
 
-// Buzzer ATIVO apita sozinho com 3,3 V (liga/desliga). PASSIVO só dá um clique
-// e precisa de frequência gerada pelo ESP32. Se o seu só fizer "tic", troque para false.
-const bool BUZZER_ATIVO = true;
-const unsigned int FREQ_BUZZER_PASSIVO = 2700;   // Hz
+// Buzzer PASSIVO (padrão) toca a melodia de alarme — o ESP32 gera cada nota.
+// Buzzer ATIVO só tem um tom fixo: se o seu apitar contínuo sozinho quando ligado
+// ao 3,3 V, troque para true e o alarme vira bipes (200 ms a cada 1 s).
+const bool BUZZER_ATIVO = false;
+const uint16_t FREQ_BIPE_TESTE = 2000;   // Hz
+
+// Melodia de alarme (original): arpejo subindo, repetido enquanto durar o ALERTA.
+// hz = 0 é pausa. Ciclo de ~2,4 s.
+struct Nota { uint16_t hz; uint16_t ms; };
+const Nota MELODIA_ALARME[] = {
+  {1047, 120}, {0, 40}, {1047, 120}, {0, 40}, {1319, 120}, {0, 40}, {1568, 260}, {0, 200},
+  {1568, 120}, {0, 40}, {1319, 120}, {0, 40}, {1568, 260}, {0, 700}
+};
+const uint8_t TAM_MELODIA = sizeof(MELODIA_ALARME) / sizeof(MELODIA_ALARME[0]);
 
 // ---- I2C -------------------------------------------------------------------
 // Se aparecerem falhas de leitura no Serial, teste 20000 (e depois pull-ups de 4,7 kΩ).
@@ -134,7 +145,10 @@ unsigned long ultimaReconexao    = 0;
 
 // Buzzer e botão
 bool             silenciado      = false;
-bool             buzzerLigado    = false;
+uint16_t         freqAtual       = 0;      // 0 = buzzer em silêncio
+bool             melodiaTocando  = false;
+uint8_t          notaAtual       = 0;
+unsigned long    inicioNota      = 0;
 unsigned long    bipeTesteAte    = 0;
 volatile bool    botaoApertado   = false;
 volatile unsigned long ultimoToqueBotao = 0;
@@ -294,16 +308,32 @@ void IRAM_ATTR aoApertarBotao() {
   }
 }
 
-void ligarBuzzer(bool ligar) {
-  if (ligar == buzzerLigado) return;
-  buzzerLigado = ligar;
+// Toca uma frequência (0 = silêncio). Só mexe no hardware quando muda.
+void tocar(uint16_t hz) {
+  if (hz == freqAtual) return;
+  freqAtual = hz;
   if (BUZZER_ATIVO) {
-    digitalWrite(PINO_BUZZER, ligar ? HIGH : LOW);
-  } else if (ligar) {
-    tone(PINO_BUZZER, FREQ_BUZZER_PASSIVO);
+    digitalWrite(PINO_BUZZER, hz > 0 ? HIGH : LOW);
+  } else if (hz > 0) {
+    tone(PINO_BUZZER, hz);
   } else {
     noTone(PINO_BUZZER);
   }
+}
+
+// Avança a melodia sem travar o loop (cada nota tem sua duração)
+uint16_t notaDaMelodia(unsigned long agora) {
+  if (!melodiaTocando) {
+    melodiaTocando = true;
+    notaAtual = 0;
+    inicioNota = agora;
+  }
+  while (agora - inicioNota >= MELODIA_ALARME[notaAtual].ms) {
+    inicioNota += MELODIA_ALARME[notaAtual].ms;
+    notaAtual = (notaAtual + 1) % TAM_MELODIA;
+    if (agora - inicioNota > 5000) inicioNota = agora;   // voltou de um envio longo: recomeça daqui
+  }
+  return MELODIA_ALARME[notaAtual].hz;
 }
 
 void cuidarDoBotao(unsigned long agora) {
@@ -321,9 +351,20 @@ void cuidarDoBotao(unsigned long agora) {
 
 void cuidarDoBuzzer(unsigned long agora) {
   if (estadoAtual != ALERTA) silenciado = false;   // saiu do alerta: rearma
-  bool alarme = (estadoAtual == ALERTA && !silenciado) && (agora % 1000 < 200);
+  bool alarme = (estadoAtual == ALERTA && !silenciado);
   bool teste  = (long)(bipeTesteAte - agora) > 0;
-  ligarBuzzer(alarme || teste);
+
+  if (teste) {
+    melodiaTocando = false;
+    tocar(FREQ_BIPE_TESTE);
+  } else if (alarme && BUZZER_ATIVO) {
+    tocar(agora % 1000 < 200 ? 1 : 0);              // ativo: bipes
+  } else if (alarme) {
+    tocar(notaDaMelodia(agora));                   // passivo: melodia
+  } else {
+    melodiaTocando = false;
+    tocar(0);
+  }
 }
 
 // =============================================================================
@@ -377,7 +418,7 @@ void guardarNaFila(float t, float u, bool mudanca) {
 
 ResultadoEnvio enviar(float t, float u, bool mudanca, time_t ts) {
   if (WiFi.status() != WL_CONNECTED) return ENVIO_FALHOU;
-  ligarBuzzer(false);   // o envio trava o loop por 1–3 s: não deixa o buzzer preso ligado
+  tocar(0);   // o envio trava o loop por 1–3 s: não deixa o buzzer preso numa nota
 
   char corpo[200];
   const char *motivo = mudanca ? "mudanca_estado" : "periodico";
