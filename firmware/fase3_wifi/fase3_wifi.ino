@@ -11,6 +11,7 @@
  *   fase3_wifi.ino   este código
  *   segredos.h       Wi-Fi e API_KEY (é seu: não vai para o GitHub)
  *   certificados.h   raízes públicas do Let's Encrypt (HTTPS verificado)
+ *   logo_itr.h       logo da ITR para a tela de abertura do OLED
  *
  * Ligações:
  *   I2C (SHT4x + OLED): 3V3, GND, SDA = GPIO21, SCL = GPIO22
@@ -47,6 +48,7 @@
 #include <Adafruit_SSD1306.h>
 #include "segredos.h"
 #include "certificados.h"
+#include "logo_itr.h"
 
 // ---- Pinos -----------------------------------------------------------------
 #define PINO_SDA          21
@@ -656,6 +658,19 @@ void textoCentralizado(const char *txt, uint8_t tamanho, int16_t y) {
   display.print(txt);
 }
 
+// Tela de abertura: texto na faixa amarela e logo da ITR na faixa azul
+const unsigned long TEMPO_ABERTURA_MS = 2000;
+
+void mostrarAbertura() {
+  if (!oledOk) return;
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  textoCentralizado("MONITOR AMBIENTAL", 1, 2);
+  display.drawBitmap(LOGO_ITR_X, LOGO_ITR_Y, LOGO_ITR, LOGO_ITR_LARGURA, LOGO_ITR_ALTURA, SSD1306_WHITE);
+  display.display();
+  delay(TEMPO_ABERTURA_MS);
+}
+
 const char* rotuloRede() {
   switch (statusRede) {
     case REDE_OK:      return "NET";
@@ -794,6 +809,7 @@ void setup() {
   scannerI2C();
   oledOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR, true, false);
   if (!oledOk) Serial.println("[oled] falha ao iniciar no 0x3C (seguindo só com Serial e LEDs)");
+  mostrarAbertura();
 
   // Lê e mostra o sensor ANTES de ligar o Wi-Fi: se a alimentação não aguentar
   // o rádio, ao menos a tela e os LEDs já funcionam e o problema fica visível.
