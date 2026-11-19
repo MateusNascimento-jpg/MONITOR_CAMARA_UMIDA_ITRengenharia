@@ -19,6 +19,8 @@ ESP32 + sensor **SHT4x** (I2C 0x44) + OLED SSD1306 0.96" (I2C 0x3C) + 3 LEDs, co
 | LED verde | GPIO25 (resistor 220–330 Ω) |
 | LED vermelho | GPIO26 (resistor 220–330 Ω) |
 | LED amarelo | GPIO27 (resistor 220–330 Ω) |
+| Buzzer (+) | GPIO14; o (−) vai no GND |
+| Botão de silenciar | GPIO13 ↔ GND, com pull-up interno |
 
 | LEDs | Estado |
 |---|---|
@@ -28,7 +30,7 @@ ESP32 + sensor **SHT4x** (I2C 0x44) + OLED SSD1306 0.96" (I2C 0x3C) + 3 LEDs, co
 | Vermelho | Alerta |
 | Vermelho piscando | Erro: sensor sem resposta em 3 leituras seguidas |
 
-O alarme sonoro fica só no dashboard.
+**Buzzer:** em ALERTA ele bipa (200 ms a cada 1 s). O botão silencia até a câmara sair do alerta; se ela voltar a entrar em alerta, o buzzer toca de novo. Fora do alerta, apertar o botão dá um bipe curto de teste. Erro do sensor não toca. O dashboard também terá alarme sonoro.
 
 | Sketch | O que faz |
 |---|---|

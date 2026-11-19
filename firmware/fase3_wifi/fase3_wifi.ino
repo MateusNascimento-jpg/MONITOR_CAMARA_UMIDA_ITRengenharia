@@ -12,9 +12,16 @@
  *   segredos.h       Wi-Fi e API_KEY (é seu: não vai para o GitHub)
  *   certificados.h   raízes públicas do Let's Encrypt (HTTPS verificado)
  *
- * Ligações (iguais à Fase 2):
+ * Ligações:
  *   I2C (SHT4x + OLED): 3V3, GND, SDA = GPIO21, SCL = GPIO22
  *   LED Verde GPIO25 | LED Vermelho GPIO26 | LED Amarelo GPIO27 (resistor 220/330 Ω)
+ *   Buzzer: (+) GPIO14, (-) GND
+ *   Botão silenciar: GPIO13 e GND (pull-up interno, sem resistor)
+ *
+ * Buzzer/botão:
+ *   ALERTA → bipa (200 ms a cada 1 s). Botão → silencia até sair do alerta;
+ *   se entrar em alerta de novo, volta a tocar. Fora do alerta, o botão dá
+ *   um bipe curto de teste. Erro do sensor não toca (só o vermelho pisca).
  *
  * LEDs = estado da CÂMARA:
  *   Verde = ÓTIMO/BOM | Amarelo = MÉDIO | Amarelo+Vermelho = RUIM
@@ -45,6 +52,13 @@
 #define PINO_LED_VERDE    25
 #define PINO_LED_VERMELHO 26
 #define PINO_LED_AMARELO  27
+#define PINO_BUZZER       14
+#define PINO_BOTAO        13
+
+// Buzzer ATIVO apita sozinho com 3,3 V (liga/desliga). PASSIVO só dá um clique
+// e precisa de frequência gerada pelo ESP32. Se o seu só fizer "tic", troque para false.
+const bool BUZZER_ATIVO = true;
+const unsigned int FREQ_BUZZER_PASSIVO = 2700;   // Hz
 
 // ---- I2C -------------------------------------------------------------------
 // Se aparecerem falhas de leitura no Serial, teste 20000 (e depois pull-ups de 4,7 kΩ).
@@ -117,6 +131,15 @@ unsigned long ultimaTentativaFila = 0;
 unsigned long ultimaFalhaEnvio   = 0;
 bool          houveFalhaEnvio    = false;
 unsigned long ultimaReconexao    = 0;
+
+// Buzzer e botão
+bool             silenciado      = false;
+bool             buzzerLigado    = false;
+unsigned long    bipeTesteAte    = 0;
+volatile bool    botaoApertado   = false;
+volatile unsigned long ultimoToqueBotao = 0;
+
+void desenharTela();   // definida mais abaixo
 
 // =============================================================================
 // Classificação (mesmas regras da API)
@@ -260,6 +283,50 @@ bool lerSht4x(float &tempC, float &umid) {
 }
 
 // =============================================================================
+// Buzzer e botão de silenciar
+// =============================================================================
+// Interrupção: registra o toque mesmo se o loop estiver ocupado (ex.: envio HTTPS)
+void IRAM_ATTR aoApertarBotao() {
+  unsigned long agora = millis();
+  if (agora - ultimoToqueBotao > 250) {     // ignora o "repique" do contato
+    ultimoToqueBotao = agora;
+    botaoApertado = true;
+  }
+}
+
+void ligarBuzzer(bool ligar) {
+  if (ligar == buzzerLigado) return;
+  buzzerLigado = ligar;
+  if (BUZZER_ATIVO) {
+    digitalWrite(PINO_BUZZER, ligar ? HIGH : LOW);
+  } else if (ligar) {
+    tone(PINO_BUZZER, FREQ_BUZZER_PASSIVO);
+  } else {
+    noTone(PINO_BUZZER);
+  }
+}
+
+void cuidarDoBotao(unsigned long agora) {
+  if (!botaoApertado) return;
+  botaoApertado = false;
+  if (estadoAtual == ALERTA && !silenciado) {
+    silenciado = true;
+    Serial.println("[alarme] silenciado pelo botão");
+    desenharTela();
+  } else {
+    bipeTesteAte = agora + 150;             // bipe curto de teste
+    Serial.println("[alarme] botão ok (bipe de teste)");
+  }
+}
+
+void cuidarDoBuzzer(unsigned long agora) {
+  if (estadoAtual != ALERTA) silenciado = false;   // saiu do alerta: rearma
+  bool alarme = (estadoAtual == ALERTA && !silenciado) && (agora % 1000 < 200);
+  bool teste  = (long)(bipeTesteAte - agora) > 0;
+  ligarBuzzer(alarme || teste);
+}
+
+// =============================================================================
 // Rede: Wi-Fi, envio HTTPS e fila offline
 // =============================================================================
 bool relogioOk() {
@@ -310,6 +377,7 @@ void guardarNaFila(float t, float u, bool mudanca) {
 
 ResultadoEnvio enviar(float t, float u, bool mudanca, time_t ts) {
   if (WiFi.status() != WL_CONNECTED) return ENVIO_FALHOU;
+  ligarBuzzer(false);   // o envio trava o loop por 1–3 s: não deixa o buzzer preso ligado
 
   char corpo[200];
   const char *motivo = mudanca ? "mudanca_estado" : "periodico";
@@ -431,8 +499,12 @@ void desenharTela() {
   // Faixa amarela: estado da câmara à esquerda, rede à direita
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.print("STATUS: ");
-  display.print(temLeitura || estadoAtual == ERRO ? nomeEstado(estadoAtual) : "...");
+  if (estadoAtual == ALERTA && silenciado) {
+    display.print("ALERTA (MUDO)");
+  } else {
+    display.print("STATUS: ");
+    display.print(temLeitura || estadoAtual == ERRO ? nomeEstado(estadoAtual) : "...");
+  }
   display.setCursor(110, 0);
   display.print(rotuloRede());
   display.drawLine(0, 11, 127, 11, SSD1306_WHITE);
@@ -514,9 +586,16 @@ void cicloDeLeitura() {
 // Arduino
 // =============================================================================
 void setup() {
+  // Buzzer desligado o quanto antes (o GPIO14 oscila durante o boot)
+  pinMode(PINO_BUZZER, OUTPUT);
+  digitalWrite(PINO_BUZZER, LOW);
+
   Serial.begin(115200);
   delay(500);
-  Serial.println("ITR Monitor Ambiental - Fase 3 (Wi-Fi + API)");
+  Serial.println("ITR Monitor Ambiental - Fase 3 (Wi-Fi + API + buzzer)");
+
+  pinMode(PINO_BOTAO, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PINO_BOTAO), aoApertarBotao, FALLING);
 
   pinMode(PINO_LED_VERDE, OUTPUT);
   pinMode(PINO_LED_AMARELO, OUTPUT);
@@ -555,6 +634,8 @@ void loop() {
   unsigned long agora = millis();
 
   cuidarDoWifi(agora);
+  cuidarDoBotao(agora);
+  cuidarDoBuzzer(agora);
 
   if (agora - ultimoPisca >= INTERVALO_PISCA_MS) {
     ultimoPisca = agora;
