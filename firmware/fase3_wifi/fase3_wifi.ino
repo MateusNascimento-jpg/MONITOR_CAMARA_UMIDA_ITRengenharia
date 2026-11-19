@@ -62,6 +62,7 @@
 // ao 3,3 V, troque para true e o alarme vira bipes (200 ms a cada 1 s).
 const bool BUZZER_ATIVO = false;
 const uint16_t FREQ_BIPE_TESTE = 2000;   // Hz
+const uint8_t  CANAL_BUZZER    = 0;      // canal PWM (LEDC) usado pelo buzzer passivo
 
 // Melodia de alarme (original): arpejo subindo, repetido enquanto durar o ALERTA.
 // hz = 0 é pausa. Ciclo de ~2,4 s.
@@ -151,12 +152,15 @@ bool          houveFalhaEnvio    = false;
 unsigned long ultimaReconexao    = 0;
 
 // Buzzer e botão
+// O loop decide SE toca (alarmeAtivo, bipeTesteAte); a tarefa do buzzer decide
+// O QUE toca, nota a nota, sem depender do loop (que trava na tela e no HTTPS).
 bool             silenciado      = false;
-uint16_t         freqAtual       = 0;      // 0 = buzzer em silêncio
+volatile bool    alarmeAtivo     = false;
+volatile unsigned long bipeTesteAte = 0;
+uint16_t         freqAtual       = 0;      // só a tarefa do buzzer mexe nestas
 bool             melodiaTocando  = false;
 uint8_t          notaAtual       = 0;
 unsigned long    inicioNota      = 0;
-unsigned long    bipeTesteAte    = 0;
 volatile bool    botaoApertado   = false;
 volatile unsigned long ultimoToqueBotao = 0;
 
@@ -338,16 +342,31 @@ void IRAM_ATTR aoApertarBotao() {
   }
 }
 
+// Prepara o PWM do buzzer passivo (a API mudou da versão 2.x para a 3.x do pacote ESP32)
+void iniciarBuzzer() {
+  if (BUZZER_ATIVO) return;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(PINO_BUZZER, FREQ_BIPE_TESTE, 8);
+  ledcWriteTone(PINO_BUZZER, 0);
+#else
+  ledcSetup(CANAL_BUZZER, FREQ_BIPE_TESTE, 8);
+  ledcAttachPin(PINO_BUZZER, CANAL_BUZZER);
+  ledcWriteTone(CANAL_BUZZER, 0);
+#endif
+}
+
 // Toca uma frequência (0 = silêncio). Só mexe no hardware quando muda.
 void tocar(uint16_t hz) {
   if (hz == freqAtual) return;
   freqAtual = hz;
   if (BUZZER_ATIVO) {
     digitalWrite(PINO_BUZZER, hz > 0 ? HIGH : LOW);
-  } else if (hz > 0) {
-    tone(PINO_BUZZER, hz);
   } else {
-    noTone(PINO_BUZZER);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcWriteTone(PINO_BUZZER, hz);
+#else
+    ledcWriteTone(CANAL_BUZZER, hz);
+#endif
   }
 }
 
@@ -379,21 +398,29 @@ void cuidarDoBotao(unsigned long agora) {
   }
 }
 
+// Roda no loop: só decide se o alarme deve tocar
 void cuidarDoBuzzer(unsigned long agora) {
   if (estadoAtual != ALERTA) silenciado = false;   // saiu do alerta: rearma
-  bool alarme = (estadoAtual == ALERTA && !silenciado);
-  bool teste  = (long)(bipeTesteAte - agora) > 0;
+  alarmeAtivo = (estadoAtual == ALERTA && !silenciado);
+}
 
-  if (teste) {
+// Roda na tarefa do buzzer: qual frequência tocar agora
+uint16_t frequenciaDesejada(unsigned long agora) {
+  if ((long)(bipeTesteAte - agora) > 0) {         // bipe de teste do botão
     melodiaTocando = false;
-    tocar(FREQ_BIPE_TESTE);
-  } else if (alarme && BUZZER_ATIVO) {
-    tocar(agora % 1000 < 200 ? 1 : 0);              // ativo: bipes
-  } else if (alarme) {
-    tocar(notaDaMelodia(agora));                   // passivo: melodia
-  } else {
-    melodiaTocando = false;
-    tocar(0);
+    return FREQ_BIPE_TESTE;
+  }
+  if (alarmeAtivo && BUZZER_ATIVO) return (agora % 1000 < 200) ? 1 : 0;   // ativo: bipes
+  if (alarmeAtivo) return notaDaMelodia(agora);                          // passivo: melodia
+  melodiaTocando = false;
+  return 0;
+}
+
+// Tarefa independente do loop: troca as notas no tempo certo (o PWM toca sozinho)
+void tarefaBuzzer(void *) {
+  for (;;) {
+    tocar(frequenciaDesejada(millis()));
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
@@ -516,7 +543,6 @@ void guardarNaFila(float t, float u, bool mudanca) {
 
 ResultadoEnvio enviar(float t, float u, bool mudanca, time_t ts) {
   if (WiFi.status() != WL_CONNECTED) return ENVIO_FALHOU;
-  tocar(0);   // o envio trava o loop por 1–3 s: não deixa o buzzer preso numa nota
 
   char corpo[200];
   const char *motivo = mudanca ? "mudanca_estado" : "periodico";
@@ -746,6 +772,10 @@ void setup() {
 
   pinMode(PINO_BOTAO, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(PINO_BOTAO), aoApertarBotao, FALLING);
+
+  // Buzzer: PWM pronto e tarefa própria (prioridade 2, acima do loop, no núcleo 1)
+  iniciarBuzzer();
+  xTaskCreatePinnedToCore(tarefaBuzzer, "buzzer", 2048, nullptr, 2, nullptr, 1);
 
   pinMode(PINO_LED_VERDE, OUTPUT);
   pinMode(PINO_LED_AMARELO, OUTPUT);
