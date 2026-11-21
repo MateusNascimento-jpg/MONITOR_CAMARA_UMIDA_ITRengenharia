@@ -108,21 +108,27 @@ async function buscarHistorico(pool, deviceId, de, ate, agrupamentoPedido) {
   return { agrupamento, leituras: grupos };
 }
 
+const NOMES_ESTADO = { otimo: 'Ótimo', bom: 'Bom', medio: 'Médio', ruim: 'Ruim', alerta: 'Alerta' };
+
 // CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília
 async function gerarCsv(pool, deviceId, de, ate) {
   const r = await pool.query(
     `SELECT to_char(medido_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI:SS') AS data_hora,
-            temp, umid, estado
+            temp, umid, nivel_temp, nivel_umid, estado
        FROM leituras
       WHERE device_id = $1 AND medido_em >= $2 AND medido_em <= $3
       ORDER BY medido_em ASC`,
     [deviceId, de, ate]
   );
 
-  const num = (v, casas) => Number(v).toFixed(casas).replace('.', ',');
-  const linhas = ['Data e hora (Brasília);Temperatura (°C);Umidade (%);Estado'];
+  const num = (v) => Number(v).toFixed(1).replace('.', ',');
+  const nome = (estado) => NOMES_ESTADO[estado] || estado;
+  const linhas = ['Data e hora (Brasília);Temperatura (°C);Umidade (%);Nível da temperatura;Nível da umidade;Estado geral'];
   for (const l of r.rows) {
-    linhas.push(`${l.data_hora};${num(l.temp, 2)};${num(l.umid, 1)};${l.estado}`);
+    linhas.push([
+      l.data_hora, num(l.temp), num(l.umid),
+      nome(NIVEIS[l.nivel_temp]), nome(NIVEIS[l.nivel_umid]), nome(l.estado),
+    ].join(';'));
   }
   // BOM no início para o Excel reconhecer acentos (UTF-8)
   return '﻿' + linhas.join('\r\n') + '\r\n';

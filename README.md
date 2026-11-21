@@ -69,7 +69,7 @@ O canto superior direito do OLED mostra o status da rede:
 
 O `auto` devolve leitura a leitura até 3 dias, e acima disso agrupa: por hora até 30 dias, a cada 6 h até 180 dias, por dia até 3 anos e por semana acima disso.
 Grupos trazem média, mínima, máxima, quantidade de leituras e o pior estado do período. Dias e semanas começam à meia-noite de Brasília.
-`/api/historico.csv` aceita o mesmo período e exporta leitura a leitura (separador `;`, vírgula decimal, horário de Brasília).
+`/api/historico.csv` aceita o mesmo período e exporta leitura a leitura (separador `;`, vírgula decimal, horário de Brasília). Colunas: Data e hora (Brasília); Temperatura (°C); Umidade (%); Nível da temperatura; Nível da umidade; Estado geral — valores com 1 casa decimal e estados escritos por extenso (Ótimo, Bom, Médio, Ruim, Alerta).
 Requer PostgreSQL 14 ou mais novo (`date_bin`).
 
 ### Contrato ESP32 → servidor
