@@ -121,7 +121,7 @@ export function criarConfig({ api, aoSalvar }) {
     receber(atual) {
       leitura = atual.leitura;
       const novo = JSON.stringify(atual.limites) !== JSON.stringify(salvos);
-      if (novo && !editando) { salvos = atual.limites; escrever(salvos); }
+      if (novo && !editando && !salvar.classList.contains('ocupado')) { salvos = atual.limites; escrever(salvos); }
     },
   };
 }

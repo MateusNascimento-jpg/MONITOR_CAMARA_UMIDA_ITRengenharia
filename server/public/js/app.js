@@ -70,6 +70,7 @@ async function consultar(forcar) {
     pino.classList.add('pulso');
   } catch {
     if (meu < aplicado) return;
+    aplicado = meu;
     if (conexao.servidorOk) conexao.falhaDesde = agora();
     conexao.servidorOk = false;
   }

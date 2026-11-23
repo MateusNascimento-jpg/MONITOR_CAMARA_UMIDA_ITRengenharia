@@ -96,7 +96,7 @@ export class Grafico {
     const limGap = passo ? passo * 1.5 : limites.sem_dados_min * MIN;
     const trechos = [];
     pontos.forEach((p, i) => {
-      if (!i || p.t - pontos[i - 1].t > limGap) trechos.push([]);
+      if (!i || p.ini - pontos[i - 1].ini > limGap) trechos.push([]); // pelo início: o meio de um intervalo parcial se desloca
       trechos[trechos.length - 1].push(p);
     });
 
