@@ -4,10 +4,12 @@ Monitoramento de temperatura e umidade da câmara úmida da ITR Engenharia.
 
 ```
 firmware/   sketches do ESP32 (Arduino IDE)
-server/     API Node.js + PostgreSQL (deploy no Coolify) — também serve o dashboard em server/public
-dashboard/  logos e materiais do dashboard (Fase 5)
+server/     API Node.js + PostgreSQL (deploy no Coolify) — também serve o painel em server/public
+dashboard/  logos originais
 referencias/ referências visuais
 ```
+
+Em produção: https://camara.itr.eng.br
 
 ## Hardware
 
@@ -30,7 +32,7 @@ ESP32 + sensor **SHT4x** (I2C 0x44) + OLED SSD1306 0.96" (I2C 0x3C) + 3 LEDs, co
 | Vermelho | Alerta |
 | Vermelho piscando | Erro: sensor sem resposta em 3 leituras seguidas |
 
-**Buzzer:** em ALERTA, toca em loop uma melodia de alarme original (buzzer passivo) ou bipes de 200 ms a cada 1 s (buzzer ativo). O botão silencia até a câmara sair do alerta; se ela voltar a entrar em alerta, o buzzer toca de novo. Fora do alerta, apertar o botão dá um bipe curto de teste. Erro do sensor não toca. O dashboard também terá alarme sonoro.
+**Buzzer:** em ALERTA, toca em loop uma melodia de alarme original (buzzer passivo) ou bipes de 200 ms a cada 1 s (buzzer ativo). O botão silencia até a câmara sair do alerta; se ela voltar a entrar em alerta, o buzzer toca de novo. Fora do alerta, apertar o botão dá um bipe curto de teste. Erro do sensor não toca. O painel tem alarme próprio, independente do buzzer.
 
 | Sketch | O que faz |
 |---|---|
@@ -46,6 +48,30 @@ O canto superior direito do OLED mostra o status da rede:
 | `OFF` | Sem Wi-Fi |
 | `API` | Wi-Fi ok, mas o servidor não respondeu |
 | `KEY` | Chave recusada pelo servidor |
+
+## Painel (server/public)
+
+HTML, CSS e JS puros, sem build e sem CDN. Abre para qualquer pessoa com o link; só salvar limites exige o `ADMIN_TOKEN`.
+
+| Página | O que mostra |
+|---|---|
+| Visão geral | Estado da câmara, temperatura e umidade nas faixas, última leitura, gráfico e tempo em cada estado (tela da TV) |
+| Histórico | Período livre, zoom por arraste e exportação em CSV |
+| Configurações | Edição dos limites, com validação e prévia |
+
+- **Atualização:** consulta a API a cada 30 s. A câmara fica em "Sem dados" após `sem_dados_min` minutos sem leitura (padrão 25).
+- **Alarme:** em Alerta ou Sem dados, aviso visual e a mesma melodia do buzzer. O navegador só libera o som depois de um clique em "Ativar som do alarme". "Silenciar alarme" vale até o próximo alarme.
+- **TV com Chrome:** com `--autoplay-policy=no-user-gesture-required`, o som volta sozinho ao recarregar, depois da primeira ativação.
+- **Demonstração:** `?demo` usa dados simulados (`?demo=otimo`, `medio`, `alerta` ou `sem_dados`). O token da demonstração é `demo`.
+
+```
+npx --yes http-server server/public -p 8080     # http://localhost:8080/?demo
+node server/public/js/regras.test.mjs           # confere as regras do painel com server/estado.js
+```
+
+## Publicação
+
+Trabalhe em um branch e abra um PR: o merge na `main` publica em produção pelo Coolify. Se não publicar em alguns minutos, use **Redeploy**.
 
 ## API (server/)
 
