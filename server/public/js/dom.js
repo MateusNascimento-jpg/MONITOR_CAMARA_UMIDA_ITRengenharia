@@ -16,8 +16,9 @@ export const semMovimento = () => matchMedia('(prefers-reduced-motion: reduce)')
 
 // Etiqueta de nível: cor + ícone + texto, nunca só a cor
 export function etiqueta(el, estado, nome) {
-  if (el.dataset.v === estado) return;
-  el.dataset.v = estado;
+  const chave = `${estado}|${nome}`;
+  if (el.dataset.v === chave) return;
+  el.dataset.v = chave;
   el.className = `nivel e-${estado}`;
   el.replaceChildren(icone(estado), nome);
 }

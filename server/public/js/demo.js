@@ -1,12 +1,14 @@
 // Dados simulados. Só é baixado quando a URL tem ?demo (ver app.js).
 import { NIVEIS, LIMITES_PADRAO, MIN, HORA, DIA, GRUPO_MS, NOME, nivelTemp, nivelUmid, validar, n1, dataHora } from './regras.js';
 
-const T0 = Date.now() - 4 * MIN; // última leitura "há 4 min"
+const T0 = Date.now() - 4 * MIN; // ao abrir, última leitura "há 4 min"
 const PASSO = 10 * MIN;
 const N = 366 * 144;
 let limites = structuredClone(LIMITES_PADRAO);
 let cenario = 'otimo';
 let cache = null;
+let corte = Infinity; // em "sem dados", as leituras param aqui
+const ultimo = () => Math.floor((Date.now() - T0) / PASSO); // uma leitura nova a cada 10 min
 
 const ruido = (i, k) => { const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; };
 const suave = (i, k, p) => {
@@ -17,7 +19,7 @@ const rampa = (i, fim, larg) => Math.max(0, Math.min(1, (i - (fim - larg)) / lar
 // Porta aberta, manutenção: subida rápida e volta lenta, pico em `c`
 const pulso = (i, c, sobe, desce) => (i <= c ? Math.max(0, 1 - (c - i) / sobe) : Math.exp(-(i - c) / desce));
 
-function ponto(i) { // i = 0 é a leitura mais recente; negativo = passado
+function ponto(i) { // i = 0 é a leitura mais recente ao abrir; negativo = passado
   const t = T0 + i * PASSO;
   const h = ((t / HORA - 3) % 24 + 24) % 24;
   let temp = 23.1 + 0.75 * Math.sin(((h - 10) / 24) * 2 * Math.PI) + 0.35 * suave(i, 1, 18) + 0.05 * ruido(i, 2);
@@ -34,10 +36,11 @@ function ponto(i) { // i = 0 é a leitura mais recente; negativo = passado
 const naLacuna = (i) => (i > -262 && i < -243) || (i > -2600 && i < -2540) || (i > -15100 && i < -14700);
 
 function serie() {
-  if (!cache) {
+  const fim = Math.min(ultimo(), corte);
+  if (!cache || cache.fim !== fim) {
     cache = [];
+    cache.fim = fim;
     let nt, nu;
-    const fim = cenario === 'sem_dados' ? -5 : 0;
     for (let i = -N; i <= fim; i++) {
       if (naLacuna(i)) continue;
       const p = ponto(i);
@@ -83,7 +86,11 @@ function historico(de, ate) {
 }
 
 export const cenarios = ['otimo', 'medio', 'alerta', 'sem_dados'];
-export function escolher(c) { cenario = c; cache = null; }
+export function escolher(c) {
+  cenario = c;
+  corte = c === 'sem_dados' ? ultimo() - 5 : Infinity;
+  cache = null;
+}
 
 export const api = {
   async atual() {

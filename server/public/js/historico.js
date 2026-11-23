@@ -20,7 +20,7 @@ export function criarHistorico({ api, agora }) {
     },
   });
   const pilha = [];
-  let janela = { horas: 24 }, limites = null, vez = 0, ultima = null;
+  let janela = { horas: 24 }, limites = null, vez = 0, ultima = null, ultimosLimites = null;
   const de = $('#hist-de'), ate = $('#hist-ate'), erro = $('#hist-erro'), voltar = $('#hist-voltar'), csv = $('#hist-csv');
 
   const marcar = segmentado($('#hist-atalhos'), (v) => { pilha.length = 0; ir({ horas: Number(v) }); });
@@ -48,6 +48,7 @@ export function criarHistorico({ api, agora }) {
       de.value = paraCampo(ini);
       ate.value = paraCampo(fim);
     }
+    if (csv.href.startsWith('blob:')) URL.revokeObjectURL(csv.href);
     csv.href = api.csv(ini, fim);
     erro.textContent = '';
     $('#cartao-hist').classList.add('carregando');
@@ -86,12 +87,14 @@ export function criarHistorico({ api, agora }) {
   return {
     abrir: () => buscar(true),
     receber(atual) {
-      const chave = JSON.stringify([atual.leitura && atual.leitura.medido_em, atual.limites]);
       limites = atual.limites;
-      if (chave !== ultima) {
-        ultima = chave;
-        if (!$('#historico').hidden && (janela.horas || !graf.serie)) buscar(false);
-      }
+      // A cada 5 min o período relativo anda, mesmo sem leitura nova: a lacuna precisa crescer
+      const chave = JSON.stringify([atual.leitura && atual.leitura.medido_em, Math.floor(agora() / (5 * 60e3))]);
+      const lim = JSON.stringify(limites);
+      const andou = chave !== ultima && (janela.horas || !graf.serie), mudouLimite = lim !== ultimosLimites;
+      ultima = chave;
+      ultimosLimites = lim;
+      if (!$('#historico').hidden && (andou || mudouLimite)) buscar(false);
     },
   };
 }

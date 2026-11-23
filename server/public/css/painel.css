@@ -357,6 +357,7 @@ input {
 input:hover { border-color: #93a1b6; }
 input:focus-visible { outline: 0; border-color: var(--umid); box-shadow: 0 0 0 3px rgb(10 109 255 / .3); border-radius: .7rem; }
 input[aria-invalid="true"] { border-color: var(--alerta); box-shadow: 0 0 0 3px rgb(208 59 59 / .16); }
+input[aria-invalid="true"]:focus-visible { outline: 3px solid var(--umid); outline-offset: 2px; }
 #hist-csv { margin-left: auto; }
 .campo-erro { color: #a81f1f; font-weight: 550; font-size: .9rem; }
 .campo-erro:empty { display: none; }

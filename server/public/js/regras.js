@@ -130,9 +130,12 @@ export function fraseAlarme({ estado, leitura, idade }, lim, { servidorOk, falha
 // Unifica leituras brutas e agregadas
 export function normalizar(h) {
   const passo = GRUPO_MS[h.agrupamento] || 0;
+  const de = Date.parse(h.de), ate = Date.parse(h.ate);
+  // Meio do intervalo, só da parte que cai dentro do período (o primeiro e o último podem ser parciais)
+  const meio = (ini) => (Math.max(ini, de) + Math.min(ini + passo, ate)) / 2;
   const pontos = h.leituras.map((l) => passo
     ? {
-      ini: Date.parse(l.inicio), t: Date.parse(l.inicio) + passo / 2, estado: l.pior_estado, n: l.leituras,
+      ini: Date.parse(l.inicio), t: meio(Date.parse(l.inicio)), estado: l.pior_estado, n: l.leituras,
       temp: { v: l.temp_media, min: l.temp_min, max: l.temp_max },
       umid: { v: l.umid_media, min: l.umid_min, max: l.umid_max },
     }
@@ -141,10 +144,11 @@ export function normalizar(h) {
       temp: { v: l.temp, min: l.temp, max: l.temp },
       umid: { v: l.umid, min: l.umid, max: l.umid },
     });
-  return { passo, agrupamento: h.agrupamento, de: Date.parse(h.de), ate: Date.parse(h.ate), pontos };
+  return { passo, agrupamento: h.agrupamento, de, ate, pontos };
 }
 
-// Linha do tempo de estados, com as lacunas como "sem_dados"
+// Linha do tempo de estados, com as lacunas como "sem_dados".
+// Em leituras brutas, o trecho antes da primeira fica em branco enquanto a anterior ao período ainda podia valer.
 export function intervalos(serie, semDadosMin) {
   const { passo, pontos, de, ate } = serie;
   const alcance = passo || semDadosMin * MIN;
@@ -156,17 +160,13 @@ export function intervalos(serie, semDadosMin) {
     if (u && u.estado === estado && u.fim >= ini) u.fim = fim;
     else out.push({ ini, fim, estado });
   };
-  let cursor = de;
+  let cursor = passo ? de : de + alcance;
   pontos.forEach((p, i) => {
-    if (p.ini > cursor) {
-      // Antes do 1º ponto bruto: dentro do alcance, a leitura anterior ainda valia
-      const perto = i === 0 && !passo && p.ini - cursor <= alcance;
-      por(cursor, p.ini, perto ? p.estado : 'sem_dados');
-    }
+    por(cursor, p.ini, 'sem_dados');
     const prox = pontos[i + 1] ? pontos[i + 1].ini : Infinity;
     const fim = Math.min(p.ini + alcance, prox);
     por(p.ini, fim, p.estado);
-    cursor = Math.max(cursor, fim);
+    cursor = fim;
   });
   por(cursor, ate, 'sem_dados');
   return out;

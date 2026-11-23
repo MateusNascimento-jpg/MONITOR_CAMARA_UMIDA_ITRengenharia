@@ -42,6 +42,19 @@ const d = r.duracoes(r.intervalos(serie, 25));
 assert.equal(d.sem_dados, 35 * r.MIN);
 assert.equal(d.otimo, 85 * r.MIN);
 
+// O trecho antes da primeira leitura fica sem estado; além do alcance, é "sem dados"
+const iso = (m) => new Date(t0 + m * r.MIN).toISOString();
+const bruta = (ate, ms) => r.normalizar({ agrupamento: 'bruto', de: iso(0), ate: iso(ate), leituras: ms.map((m) => ({ medido_em: iso(m), temp: 23, umid: 70, estado: 'alerta' })) });
+assert.deepEqual(r.duracoes(r.intervalos(bruta(20, [10]), 25)), { alerta: 10 * r.MIN });
+assert.deepEqual(r.duracoes(r.intervalos(bruta(60, [40, 50]), 25)), { sem_dados: 15 * r.MIN, alerta: 20 * r.MIN });
+assert.deepEqual(r.duracoes(r.intervalos(bruta(60, []), 25)), { sem_dados: 35 * r.MIN });
+
+// Intervalos agregados parciais ficam dentro do período; os completos, no meio
+const hora = (m) => ({ inicio: iso(m), temp_media: 23, temp_min: 23, temp_max: 23, umid_media: 97, umid_min: 97, umid_max: 97, leituras: 6, pior_estado: 'otimo' });
+const ag = r.normalizar({ agrupamento: '1h', de: iso(30), ate: iso(125), leituras: [hora(0), hora(60), hora(120)] });
+assert.deepEqual(ag.pontos.map((p) => (p.t - t0) / r.MIN), [45, 90, 122.5]);
+assert.deepEqual(r.duracoes(r.intervalos(ag, 25)), { otimo: 95 * r.MIN });
+
 // Frases
 const lei = { temp: 23, umid: 77.8, nivel_temp: 0, nivel_umid: 4, medido_em: new Date(t0).toISOString() };
 const ok = { servidorOk: true };

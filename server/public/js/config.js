@@ -90,7 +90,7 @@ export function criarConfig({ api, aoSalvar }) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const { l, valido } = conferir();
-    if (!valido) return;
+    if (!valido || salvar.classList.contains('ocupado')) return;
     if (!token.value) {
       $('#erro-token').textContent = 'Digite o token de administrador para salvar.';
       token.setAttribute('aria-invalid', 'true');
@@ -102,8 +102,9 @@ export function criarConfig({ api, aoSalvar }) {
     try {
       salvos = await api.salvar(l, token.value);
       token.value = '';
-      escrever(salvos);
-      recado('Limites salvos. A placa recebe os novos valores no próximo envio.', 'ok');
+      // Edição feita durante o salvamento não se perde: continua no formulário, por salvar
+      if (JSON.stringify(ler()) === JSON.stringify(l)) escrever(salvos); else conferir();
+      recado(`Limites salvos. A placa recebe os novos valores no próximo envio.${editando ? ' Há alterações novas não salvas.' : ''}`, 'ok');
       aoSalvar();
     } catch (err) {
       if (err.status === 401) {
