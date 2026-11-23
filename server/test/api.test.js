@@ -4,7 +4,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
-if (!/teste[^/]*$/.test(process.env.DATABASE_URL || '')) throw new Error('use um banco com "teste" no nome');
+if (!new URL(process.env.DATABASE_URL || 'postgres:').pathname.endsWith('teste')) throw new Error('use um banco com "teste" no nome');
 Object.assign(process.env, { API_KEY: 'chave', ADMIN_TOKEN: 'token' });
 const { app } = require('../server');
 const { pool, migrar } = require('../db');
@@ -52,6 +52,25 @@ test('reenvio da mesma leitura não duplica, leituras distintas não somem', asy
   assert.equal(await contar('perdida'), 1);
   for (const o of [{ ts: ts + 600 }, { ts: ts + 1, temp: 23.5 }, { ts: ts + 2, motivo: 'mudanca_estado' }]) await ler({ device_id: 'fila', ...o });
   assert.equal(await contar('fila'), 4);
+});
+
+test('reenvios simultâneos da mesma leitura não duplicam', async () => {
+  const ts = seg() - 7200;
+  for (let i = 0; i < 20; i++) await Promise.all([1, 2, 3].map(() => ler({ device_id: 'juntas', ts: ts + i * 60 })));
+  assert.equal(await contar('juntas'), 20);
+});
+
+test('gravação que expira não aparece depois', async () => {
+  const c = await pool.connect();
+  await c.query('BEGIN');
+  await c.query('LOCK TABLE leituras IN SHARE ROW EXCLUSIVE MODE'); // segura as gravações, como um banco lento
+  const ts = seg() - 9000;
+  assert.equal((await ler({ device_id: 'lenta', ts })).status, 500); // a placa guarda e reenvia
+  await c.query('ROLLBACK');
+  c.release();
+  await new Promise((ok) => setTimeout(ok, 500));
+  assert.equal((await ler({ device_id: 'lenta', ts })).status, 200);
+  assert.equal(await contar('lenta'), 1);
 });
 
 test('a placa nunca recebe 429, mesmo com a fila de 24 h', async () => {

@@ -19,7 +19,7 @@ const { pipeline } = require('node:stream/promises');
 const express = require('express');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
-const { pool, migrar } = require('./db');
+const { pool, migrar, emTransacao } = require('./db');
 const {
   LIMITES_PADRAO,
   copiarLimites,
@@ -154,15 +154,19 @@ app.post('/api/leituras', exigir('x-api-key', API_KEY), async (req, res, next) =
 
     // Se a resposta se perde depois de gravar, a placa reenvia a mesma leitura com ts: não grava de novo.
     // 30 s cobrem os 8 s de espera da placa mais a diferença dos relógios.
-    await pool.query(
-      `INSERT INTO leituras (device_id, temp, umid, medido_em, motivo, nivel_temp, nivel_umid, estado)
-       SELECT $1::text, $2::real, $3::real, $4::timestamptz, $5::text, $6::smallint, $7::smallint, $8::text
-        WHERE NOT $9::boolean OR NOT EXISTS (
-          SELECT 1 FROM leituras
-           WHERE device_id = $1 AND temp = $2::real AND umid = $3::real AND motivo = $5
-             AND medido_em BETWEEN $4::timestamptz - interval '30 seconds' AND $4::timestamptz + interval '30 seconds')`,
-      [deviceId, temp, umid, medidoEm, motivo, c.nivel_temp, c.nivel_umid, c.estado, ts !== undefined]
-    );
+    await emTransacao(async (cliente) => {
+      // Uma gravação por vez em cada dispositivo, senão dois reenvios simultâneos passam pela checagem
+      await cliente.query('SELECT pg_advisory_xact_lock(hashtext($1))', [deviceId]);
+      await cliente.query(
+        `INSERT INTO leituras (device_id, temp, umid, medido_em, motivo, nivel_temp, nivel_umid, estado)
+         SELECT $1::text, $2::real, $3::real, $4::timestamptz, $5::text, $6::smallint, $7::smallint, $8::text
+          WHERE NOT $9::boolean OR NOT EXISTS (
+            SELECT 1 FROM leituras
+             WHERE device_id = $1 AND temp = $2::real AND umid = $3::real AND motivo = $5
+               AND medido_em BETWEEN $4::timestamptz - interval '30 seconds' AND $4::timestamptz + interval '30 seconds')`,
+        [deviceId, temp, umid, medidoEm, motivo, c.nivel_temp, c.nivel_umid, c.estado, ts !== undefined]
+      );
+    });
 
     res.json({ ok: true, estado: c.estado, limites });
   } catch (e) {

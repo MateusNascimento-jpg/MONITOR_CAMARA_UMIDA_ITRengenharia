@@ -43,4 +43,18 @@ async function migrar() {
   await pool.query({ text: MIGRACAO, query_timeout: 60000 });
 }
 
-module.exports = { pool, migrar };
+// Em erro, fecha a conexão: o banco desfaz o que não foi confirmado, inclusive o que expirou no meio
+async function emTransacao(fn) {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await fn(c);
+    await c.query('COMMIT');
+    c.release();
+  } catch (e) {
+    c.release(e);
+    throw e;
+  }
+}
+
+module.exports = { pool, migrar, emTransacao };
