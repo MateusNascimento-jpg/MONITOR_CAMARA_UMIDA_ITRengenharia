@@ -122,6 +122,15 @@ Resposta: `{ "ok": true, "estado": "otimo", "limites": { ... } }`
 Estado da câmara = pior entre temperatura e umidade. Histerese padrão: 0,3 °C / 1 %.
 Sem dados: alarme após 25 min sem leitura. Todos os limites são editáveis via `PUT /api/limites`.
 
+### Robustez
+
+- Reenvio da mesma leitura com `ts` (mesmos valores e motivo, até 30 s) responde 200 sem gravar de novo.
+- 10 tokens errados em 15 min bloqueiam `PUT /api/limites` para aquele IP (429). `/api/historico` e o CSV aceitam 120 pedidos por minuto por IP.
+- `/api/leituras` **nunca** deve responder 429 nem outro 4xx novo: a placa descarta a leitura em qualquer 4xx que não seja 401.
+- Com o banco travado, a API responde 500 em cerca de 5 s e a placa guarda a leitura na fila.
+
+Testes do servidor (o banco precisa ter "teste" no nome, porque os dados dele são apagados): `cd server && DATABASE_URL=postgres://.../camara_teste npm test`.
+
 ### Variáveis de ambiente
 
 `DATABASE_URL`, `API_KEY`, `ADMIN_TOKEN`, `PORT` (padrão 3000). Ver `server/.env.example`.

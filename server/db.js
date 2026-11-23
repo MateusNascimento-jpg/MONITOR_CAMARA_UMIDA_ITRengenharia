@@ -5,7 +5,14 @@ const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 5,
+  keepAlive: true,
+  // A placa desiste em 8 s: com o banco travado, responder antes faz ela guardar a leitura na fila
+  connectionTimeoutMillis: 5000,
+  query_timeout: 5000,
 });
+
+// Sem isto, uma conexão ociosa derrubada pelo banco (ex.: reinício) encerra o processo
+pool.on('error', (e) => console.error('[banco] conexão perdida:', e.message));
 
 // Cria as tabelas na primeira execução (idempotente: pode rodar sempre)
 const MIGRACAO = `
@@ -33,7 +40,7 @@ CREATE TABLE IF NOT EXISTS configuracao (
 `;
 
 async function migrar() {
-  await pool.query(MIGRACAO);
+  await pool.query({ text: MIGRACAO, query_timeout: 60000 });
 }
 
 module.exports = { pool, migrar };
