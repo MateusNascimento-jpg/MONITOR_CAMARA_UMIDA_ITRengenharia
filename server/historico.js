@@ -14,6 +14,8 @@ const { NIVEIS } = require('./estado');
 const HORA = 3600e3;
 const DIA = 24 * HORA;
 const MAX_PERIODO = 5 * 365 * DIA; // 5 anos
+const LOTE_CSV = 5000;
+const TEMPO_LONGO = 60000; // anos de leituras podem passar do limite padrão do pool
 
 // Agrupamentos aceitos → intervalo do PostgreSQL
 const AGRUPAMENTOS = {
@@ -40,7 +42,8 @@ function agrupamentoAutomatico(periodoMs) {
 function lerData(valor) {
   if (valor === undefined || valor === '') return undefined;
   const d = /^\d+$/.test(String(valor)) ? new Date(Number(valor)) : new Date(String(valor));
-  return Number.isNaN(d.getTime()) ? null : d;
+  const ano = d.getUTCFullYear(); // NaN se a data for inválida; fora de 1 a 9999 o PostgreSQL recusa
+  return ano >= 1 && ano <= 9999 ? d : null;
 }
 
 /*
@@ -72,23 +75,24 @@ function lerPeriodo(query) {
 async function buscarHistorico(pool, deviceId, de, ate, agrupamentoPedido) {
   let agrupamento = agrupamentoPedido || 'auto';
   if (agrupamento === 'auto') agrupamento = agrupamentoAutomatico(ate - de);
-  if (!(agrupamento in AGRUPAMENTOS)) {
+  if (!Object.hasOwn(AGRUPAMENTOS, agrupamento)) {
     return { erro: `agrupamento: use auto, ${Object.keys(AGRUPAMENTOS).join(', ')}` };
   }
 
   if (agrupamento === 'bruto') {
-    const r = await pool.query(
-      `SELECT medido_em, temp, umid, estado
+    const r = await pool.query({
+      text: `SELECT medido_em, temp, umid, estado
          FROM leituras
         WHERE device_id = $1 AND medido_em >= $2 AND medido_em <= $3
         ORDER BY medido_em ASC`,
-      [deviceId, de, ate]
-    );
+      values: [deviceId, de, ate],
+      query_timeout: TEMPO_LONGO,
+    });
     return { agrupamento, leituras: r.rows };
   }
 
-  const r = await pool.query(
-    `SELECT date_bin($4::interval, medido_em, TIMESTAMPTZ '${ORIGEM}') AS inicio,
+  const r = await pool.query({
+    text: `SELECT date_bin($4::interval, medido_em, TIMESTAMPTZ '${ORIGEM}') AS inicio,
             round(avg(temp)::numeric, 2)::float8 AS temp_media,
             round(min(temp)::numeric, 2)::float8  AS temp_min,
             round(max(temp)::numeric, 2)::float8  AS temp_max,
@@ -101,8 +105,9 @@ async function buscarHistorico(pool, deviceId, de, ate, agrupamentoPedido) {
       WHERE device_id = $1 AND medido_em >= $2 AND medido_em <= $3
       GROUP BY inicio
       ORDER BY inicio ASC`,
-    [deviceId, de, ate, AGRUPAMENTOS[agrupamento]]
-  );
+    values: [deviceId, de, ate, AGRUPAMENTOS[agrupamento]],
+    query_timeout: TEMPO_LONGO,
+  });
 
   const grupos = r.rows.map(({ pior_nivel, ...g }) => ({ ...g, pior_estado: NIVEIS[pior_nivel] }));
   return { agrupamento, leituras: grupos };
@@ -110,28 +115,37 @@ async function buscarHistorico(pool, deviceId, de, ate, agrupamentoPedido) {
 
 const NOMES_ESTADO = { otimo: 'Ótimo', bom: 'Bom', medio: 'Médio', ruim: 'Ruim', alerta: 'Alerta' };
 
-// CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília
-async function gerarCsv(pool, deviceId, de, ate) {
-  const r = await pool.query(
-    `SELECT to_char(medido_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI:SS') AS data_hora,
-            temp, umid, nivel_temp, nivel_umid, estado
-       FROM leituras
-      WHERE device_id = $1 AND medido_em >= $2 AND medido_em <= $3
-      ORDER BY medido_em ASC`,
-    [deviceId, de, ate]
-  );
-
+// CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília.
+// Sai em partes de LOTE_CSV leituras: anos de dados não cabem de uma vez na memória.
+async function* gerarCsv(pool, deviceId, de, ate) {
   const num = (v) => Number(v).toFixed(1).replace('.', ',');
   const nome = (estado) => NOMES_ESTADO[estado] || estado;
-  const linhas = ['Data e hora (Brasília);Temperatura (°C);Umidade (%);Nível da temperatura;Nível da umidade;Estado geral'];
-  for (const l of r.rows) {
-    linhas.push([
-      l.data_hora, num(l.temp), num(l.umid),
-      nome(NIVEIS[l.nivel_temp]), nome(NIVEIS[l.nivel_umid]), nome(l.estado),
-    ].join(';'));
-  }
   // BOM no início para o Excel reconhecer acentos (UTF-8)
-  return '﻿' + linhas.join('\r\n') + '\r\n';
+  let parte = '\ufeffData e hora (Brasília);Temperatura (°C);Umidade (%);Nível da temperatura;Nível da umidade;Estado geral\r\n';
+  let cursor = de, id = 0, linhas;
+  do {
+    const r = await pool.query({
+      text: `SELECT id, medido_em::text AS cursor,
+                    to_char(medido_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI:SS') AS data_hora,
+                    temp, umid, nivel_temp, nivel_umid, estado
+               FROM leituras
+              WHERE device_id = $1 AND (medido_em, id) > ($2::timestamptz, $3::bigint) AND medido_em <= $4
+              ORDER BY medido_em ASC, id ASC
+              LIMIT ${LOTE_CSV}`,
+      values: [deviceId, cursor, id, ate],
+      query_timeout: TEMPO_LONGO,
+    });
+    linhas = r.rows;
+    for (const l of linhas) {
+      parte += [
+        l.data_hora, num(l.temp), num(l.umid),
+        nome(NIVEIS[l.nivel_temp]), nome(NIVEIS[l.nivel_umid]), nome(l.estado),
+      ].join(';') + '\r\n';
+    }
+    yield parte;
+    parte = '';
+    if (linhas.length) ({ cursor, id } = linhas[linhas.length - 1]);
+  } while (linhas.length === LOTE_CSV);
 }
 
 module.exports = { lerPeriodo, buscarHistorico, gerarCsv, AGRUPAMENTOS };
