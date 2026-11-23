@@ -235,6 +235,8 @@ html:is([data-estado="alerta"], [data-estado="sem_dados"]) :is(.topo, .filtros) 
 #malha { position: absolute; right: -31cqh; bottom: -37cqh; width: 120cqh; height: 120cqh; color: inherit; pointer-events: none; }
 #malha.espera { visibility: hidden; }
 .estado-texto, .ultima { position: relative; }
+/* A esfera começa a 81cqh da borda direita do cartão: "há …" desce de linha antes de encostar nela */
+.ultima { max-width: calc(100cqw + .7rem - 81cqh); }
 #estado-frase { max-width: 64%; }
 .estado h2 { padding-top: .13em; display: flex; align-items: center; gap: .18em; font-size: min(7.6rem, 18.5cqw, 35cqh); line-height: 1; font-weight: 750; letter-spacing: -.045em; }
 .estado h2 .ico { width: .74em; height: .74em; }
