@@ -29,10 +29,11 @@ export function criarHistorico({ api, agora }) {
     e.preventDefault();
     const a = doCampo(de.value), b = doCampo(ate.value);
     erro.textContent = Number.isNaN(a) || Number.isNaN(b) ? 'Preencha a data e a hora de início e de fim.'
-      : a >= b ? 'O início precisa ser antes do fim.' : '';
+      : a >= b ? 'O início precisa ser antes do fim.'
+        : a >= agora() ? 'O início precisa estar no passado.' : '';
     if (erro.textContent) return;
     pilha.length = 0;
-    ir({ horas: null, de: a, ate: b });
+    ir({ horas: null, de: a, ate: Math.min(b, agora()) }); // o que ainda não aconteceu não é "sem dados"
   });
 
   function ir(nova) { janela = nova; buscar(true); }
