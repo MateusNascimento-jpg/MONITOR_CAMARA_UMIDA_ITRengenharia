@@ -1,6 +1,6 @@
 // Alarme sonoro: mesma melodia do buzzer da placa (onda quadrada).
 const MELODIA = [[932, 120], [0, 40], [932, 120], [0, 40], [1175, 120], [0, 40], [1397, 260], [0, 200], [1397, 120], [0, 40], [1175, 120], [0, 40], [1397, 260], [0, 700]];
-const VOLUME = 0.6; // de 0 a 1; acima de 1 distorce
+const VOLUME = 1; // máximo; acima de 1 distorce
 
 let ctx = null, volume = null, laco = null;
 let tipo = null;      // 'alerta' | 'sem_dados' | null
