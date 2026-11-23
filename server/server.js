@@ -7,6 +7,7 @@
  * Painel → GET  /api/atual            leitura mais recente + estado + "sem dados"
  *          GET  /api/historico        série para os gráficos (período De/Até)
  *          GET  /api/historico.csv    exporta o período em CSV
+ *          GET  /api/historico.xlsx   exporta o período em planilha do Excel
  *          GET  /api/limites          limites atuais
  *          PUT  /api/limites          altera limites (header x-admin-token)
  * Coolify → GET /health
@@ -28,6 +29,7 @@ const {
   normalizarLimites,
 } = require('./estado');
 const { lerPeriodo, buscarHistorico, gerarCsv } = require('./historico');
+const { gerarPlanilha } = require('./planilha');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.API_KEY;
@@ -109,7 +111,7 @@ app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
-app.use(['/api/historico', '/api/historico.csv'], limiteHistorico);
+app.use(['/api/historico', '/api/historico.csv', '/api/historico.xlsx'], limiteHistorico);
 
 app.get('/health', async (req, res) => {
   try {
@@ -241,6 +243,24 @@ app.get('/api/historico.csv', async (req, res, next) => {
     await pipeline(Readable.from(partes), res);
   } catch (e) {
     if (e.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // o navegador cancelou o download
+    next(e);
+  }
+});
+
+// O mesmo período em planilha do Excel, com as colunas já na largura certa
+app.get('/api/historico.xlsx', async (req, res, next) => {
+  try {
+    const deviceId = deviceDe(req.query.device_id);
+    if (!deviceId) return erro(res, 'device_id inválido');
+    const periodo = lerPeriodo(req.query);
+    if (periodo.erro) return erro(res, periodo.erro);
+
+    const arquivo = await gerarPlanilha(pool, deviceId, periodo.de, periodo.ate);
+    const dia = (d) => d.toISOString().slice(0, 10);
+    res.type('xlsx');
+    res.set('Content-Disposition', `attachment; filename="${deviceId}_${dia(periodo.de)}_${dia(periodo.ate)}.xlsx"`);
+    res.send(arquivo);
+  } catch (e) {
     next(e);
   }
 });
