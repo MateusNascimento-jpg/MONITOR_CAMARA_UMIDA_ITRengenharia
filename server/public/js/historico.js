@@ -2,7 +2,7 @@
 import { $, rolar, segmentado } from './dom.js';
 import { Grafico } from './grafico.js';
 import {
-  MEDIDA, HORA, normalizar, intervalos, duracoes, minMax, media, n1, duracao, dataHora, paraCampo, doCampo,
+  MEDIDA, MIN, HORA, normalizar, intervalos, duracoes, minMax, media, n1, duracao, dataHora, paraCampo, doCampo,
 } from './regras.js';
 
 const GRUPO = {
@@ -33,10 +33,13 @@ export function criarHistorico({ api, agora }) {
         : a >= agora() ? 'O início precisa estar no passado.' : '';
     if (erro.textContent) return;
     pilha.length = 0;
-    ir({ horas: null, de: a, ate: Math.min(b, agora()) }); // o que ainda não aconteceu não é "sem dados"
+    ir({ horas: null, de: a, ate: b });
   });
 
-  function ir(nova) { janela = nova; buscar(true); }
+  function ir(nova) {
+    janela = nova.horas ? nova : { ...nova, ate: Math.min(nova.ate, agora()) }; // o que ainda não aconteceu não é "sem dados"
+    buscar(true);
+  }
 
   async function buscar(animar) {
     if (!limites) return;
@@ -47,7 +50,7 @@ export function criarHistorico({ api, agora }) {
     voltar.hidden = !pilha.length;
     if (animar || document.activeElement !== de && document.activeElement !== ate) {
       de.value = paraCampo(ini);
-      ate.value = paraCampo(fim);
+      ate.value = paraCampo(Math.ceil(fim / MIN) * MIN); // o campo só tem minutos: para cima, para não cortar o último
     }
     if (csv.href.startsWith('blob:')) URL.revokeObjectURL(csv.href);
     csv.href = api.csv(ini, fim);
