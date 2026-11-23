@@ -1,5 +1,6 @@
 // Alarme sonoro: mesma melodia do buzzer da placa (onda quadrada).
 const MELODIA = [[932, 120], [0, 40], [932, 120], [0, 40], [1175, 120], [0, 40], [1397, 260], [0, 200], [1397, 120], [0, 40], [1175, 120], [0, 40], [1397, 260], [0, 700]];
+const VOLUME = 1; // máximo; acima de 1 distorce
 
 let ctx = null, volume = null, laco = null;
 let tipo = null;      // 'alerta' | 'sem_dados' | null
@@ -18,8 +19,8 @@ function tocar(notas) {
       o.type = 'square';
       o.frequency.value = hz;
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.16, t + 0.005);
-      g.gain.setValueAtTime(0.16, t + ms / 1000 - 0.008);
+      g.gain.linearRampToValueAtTime(VOLUME, t + 0.005);
+      g.gain.setValueAtTime(VOLUME, t + ms / 1000 - 0.008);
       g.gain.linearRampToValueAtTime(0, t + ms / 1000);
       o.connect(g).connect(volume);
       o.start(t);
