@@ -417,7 +417,7 @@ fieldset .nota { margin-top: .6rem; }
 .tracar #abertura-nome { animation: nome .85s .75s var(--vai) forwards; }
 @keyframes nome { to { clip-path: polygon(0 0, 118% 0, 106% 100%, -12% 100%); } }
 
-.abrindo .estado { transition: none; }
+.abrindo :is(.estado, #faixa-alarme) { transition: none; }
 .abrindo :is(#trilho, .topo, #faixa-alarme, .pagina > *) { opacity: 0; }
 .aberto #trilho { animation: entra-trilho .8s var(--sai) both; }
 .aberto .topo { animation: entra-topo .7s .12s var(--sai) both; }

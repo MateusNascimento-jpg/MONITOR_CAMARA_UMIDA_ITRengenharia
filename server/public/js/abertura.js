@@ -6,7 +6,9 @@ const espera = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
 export async function abrir(pronto, malha, aoRevelar) {
   const raiz = document.documentElement, capa = $('#abertura'), palco = $('#abertura-malha'), nome = $('#abertura-nome');
-  const fim = () => { aoRevelar(); getComputedStyle($('#malha')).color; raiz.classList.remove('abrindo'); raiz.classList.add('aberto'); };
+  const alvo = $('#malha');
+  let b; // destino do voo, medido com a tela já montada e antes das animações de entrada
+  const fim = () => { aoRevelar(); b = alvo.getBoundingClientRect(); raiz.classList.remove('abrindo'); raiz.classList.add('aberto'); };
   if (semMovimento()) {
     await Promise.race([pronto, espera(3000)]);
     fim();
@@ -35,13 +37,13 @@ export async function abrir(pronto, malha, aoRevelar) {
   m.progresso = 1;
   m.giro = 1;
 
-  const alvo = $('#malha');
   const visivel = alvo.offsetParent !== null;
   nome.animate([{ opacity: 1 }, { opacity: 0, transform: 'translateX(-1rem)' }], { duration: 260, fill: 'forwards', easing: 'ease-in' });
   await espera(160);
   fim();
+  m.alvo = malha.alvo; // a esfera já voa no estado em que vai ficar
   if (visivel) {
-    const a = palco.getBoundingClientRect(), b = alvo.getBoundingClientRect();
+    const a = palco.getBoundingClientRect();
     const escala = Math.min(b.width, b.height) / Math.min(a.width, a.height);
     palco.style.setProperty('--cor-final', getComputedStyle(alvo).color);
     palco.classList.add('voar');
