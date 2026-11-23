@@ -62,13 +62,18 @@ test('reenvios simultâneos da mesma leitura não duplicam', async () => {
 
 test('gravação que expira não aparece depois', async () => {
   const c = await pool.connect();
-  await c.query('BEGIN');
-  await c.query('LOCK TABLE leituras IN SHARE ROW EXCLUSIVE MODE'); // segura as gravações, como um banco lento
   const ts = seg() - 9000;
-  assert.equal((await ler({ device_id: 'lenta', ts })).status, 500); // a placa guarda e reenvia
-  await c.query('ROLLBACK');
-  c.release();
-  await new Promise((ok) => setTimeout(ok, 500));
+  let r;
+  try {
+    await c.query('BEGIN');
+    await c.query('LOCK TABLE leituras IN SHARE ROW EXCLUSIVE MODE'); // segura as gravações, como um banco lento
+    r = await ler({ device_id: 'lenta', ts });
+  } finally {
+    c.release(true); // fecha a conexão: solta a trava mesmo se algo falhar
+  }
+  assert.equal(r.status, 500); // a placa guarda e reenvia
+  await new Promise((ok) => setTimeout(ok, 1000));
+  assert.equal(await contar('lenta'), 0);
   assert.equal((await ler({ device_id: 'lenta', ts })).status, 200);
   assert.equal(await contar('lenta'), 1);
 });
