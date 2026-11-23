@@ -1,5 +1,200 @@
 <!doctype html>
-<html lang="pt-BR">
-<head><meta charset="utf-8"><title>ITR Monitor Ambiental</title></head>
-<body><p>API no ar. O dashboard chega na Fase 5.</p></body>
+<html lang="pt-BR" class="abrindo">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d12">
+<title>Câmara úmida</title>
+<meta name="description" content="Temperatura e umidade da câmara úmida da ITR Engenharia, ao vivo.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/geologica.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/painel.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<noscript><p class="sem-js">O painel precisa de JavaScript para mostrar os dados da câmara.</p></noscript>
+
+<div id="abertura" aria-hidden="true">
+  <div class="abertura-marca">
+    <canvas id="abertura-malha"></canvas>
+    <img id="abertura-nome" src="img/logo-nome.png" alt="" width="776" height="352">
+  </div>
+</div>
+
+<a class="pular" href="#conteudo">Ir para o conteúdo</a>
+
+<nav id="trilho" aria-label="Páginas">
+  <span class="trilho-marca" aria-hidden="true"></span>
+  <a href="#visao"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#visao"/></svg><span>Visão geral</span></a>
+  <a href="#historico"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#historico"/></svg><span>Histórico</span></a>
+  <a href="#config"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#config"/></svg><span>Configurações</span></a>
+  <div id="demo" hidden><p>Dados simulados</p></div>
+</nav>
+
+<div class="tela">
+  <header class="topo">
+    <img class="logo logo-preta" src="img/logo-itr-preta.png" alt="ITR Engenharia" width="1286" height="458">
+    <img class="logo logo-branca" src="img/logo-itr.png" alt="ITR Engenharia" width="1286" height="458">
+    <h1>Câmara úmida</h1>
+    <div class="topo-fim">
+      <p id="conexao" role="status"></p>
+      <button id="som" class="botao destaque" type="button"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#mudo"/></svg><span>Ativar som do alarme</span></button>
+      <p id="som-ok" hidden><svg class="ico" aria-hidden="true"><use href="img/icones.svg#som"/></svg><span>Som ativo</span></p>
+      <p class="relogio"><span><b id="relogio-hm"></b><i id="relogio-s"></i></span><small id="relogio-dia"></small></p>
+    </div>
+  </header>
+
+  <div id="faixa-alarme" inert>
+    <div class="faixa-dentro">
+      <span id="alarme-icone" aria-hidden="true"></span>
+      <p id="alarme-texto" role="alert"></p>
+      <button id="silenciar" class="botao" type="button" hidden></button>
+    </div>
+  </div>
+
+  <main id="conteudo" tabindex="-1">
+
+    <section id="visao" class="pagina" aria-label="Visão geral">
+      <article id="estado" class="cartao estado">
+        <canvas id="malha" aria-hidden="true"></canvas>
+        <div class="estado-texto" role="status">
+          <h2><span id="estado-icone"></span><span id="estado-nome"></span></h2>
+          <p id="estado-frase"></p>
+        </div>
+        <dl class="ultima">
+          <dt>Última leitura</dt>
+          <dd><strong id="ult-hora"></strong><span id="ult-ha"></span></dd>
+        </dl>
+      </article>
+
+      <article id="cartao-temp" class="cartao medida serie-temp">
+        <div class="medida-lado">
+          <header><svg class="ico" aria-hidden="true"><use href="img/icones.svg#temp"/></svg><h2>Temperatura</h2></header>
+          <p class="valor"><span id="num-temp" class="num"></span><em>°C</em></p>
+          <p id="nivel-temp"></p>
+          <ul class="mm">
+            <li id="temp-min"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#min"/></svg><span>Mínima</span><strong>–</strong><small></small></li>
+            <li id="temp-max"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#max"/></svg><span>Máxima</span><strong>–</strong><small></small></li>
+          </ul>
+        </div>
+        <div id="prov-temp"></div>
+      </article>
+
+      <article id="cartao-umid" class="cartao medida serie-umid">
+        <div class="medida-lado">
+          <header><svg class="ico" aria-hidden="true"><use href="img/icones.svg#umid"/></svg><h2>Umidade</h2></header>
+          <p class="valor"><span id="num-umid" class="num"></span><em>%</em></p>
+          <p id="nivel-umid"></p>
+          <ul class="mm">
+            <li id="umid-min"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#min"/></svg><span>Mínima</span><strong>–</strong><small></small></li>
+            <li id="umid-max"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#max"/></svg><span>Máxima</span><strong>–</strong><small></small></li>
+          </ul>
+        </div>
+        <div id="prov-umid"></div>
+      </article>
+
+      <article id="cartao-graf" class="cartao grafico">
+        <header>
+          <h2 id="periodo-titulo">Últimas 24 horas</h2>
+          <div id="periodo" class="seg" role="group" aria-label="Período do gráfico">
+            <button type="button" data-valor="6">6 h</button>
+            <button type="button" data-valor="24">24 h</button>
+            <button type="button" data-valor="168">7 dias</button>
+            <button type="button" data-valor="720">30 dias</button>
+          </div>
+        </header>
+        <div id="graf-visao" class="graf-caixa"></div>
+      </article>
+
+      <article class="cartao rosca">
+        <h2>Tempo em cada estado</h2>
+        <div class="rosca-corpo">
+          <div class="rosca-fig">
+            <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="arco-base" cx="60" cy="60" r="42"/><g id="rosca-anel"></g></svg>
+            <p id="rosca-centro" hidden><span><span id="rosca-pct" class="num"></span><em>%</em></span><small>em Ótimo ou Bom</small></p>
+          </div>
+          <div>
+            <ul id="rosca-lista"></ul>
+            <p id="rosca-nota" class="nota"></p>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="historico" class="pagina" aria-label="Histórico" hidden>
+      <form id="hist-form" class="filtros" novalidate>
+        <div id="hist-atalhos" class="seg" role="group" aria-label="Atalhos de período">
+          <button type="button" data-valor="1">1 h</button>
+          <button type="button" data-valor="6">6 h</button>
+          <button type="button" data-valor="24">24 h</button>
+          <button type="button" data-valor="168">7 dias</button>
+          <button type="button" data-valor="720">30 dias</button>
+          <button type="button" data-valor="8760">1 ano</button>
+        </div>
+        <div class="de-ate">
+          <label>Início <input id="hist-de" type="datetime-local" required></label>
+          <label>Fim <input id="hist-ate" type="datetime-local" required></label>
+          <button class="botao" type="submit">Ver período</button>
+        </div>
+        <a id="hist-csv" class="botao destaque" download="camara-umida.csv"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#baixar"/></svg><span>Exportar CSV</span></a>
+        <p id="hist-erro" class="campo-erro" role="alert"></p>
+      </form>
+
+      <ul class="resumo">
+        <li class="serie-temp"><span>Temperatura média</span><strong><span id="res-temp" class="num"></span><em>°C</em></strong><small id="res-temp-mm"></small></li>
+        <li class="serie-umid"><span>Umidade média</span><strong><span id="res-umid" class="num"></span><em>%</em></strong><small id="res-umid-mm"></small></li>
+        <li class="e-alerta"><span id="res-alerta-nome">Tempo em Alerta</span><strong id="res-alerta"></strong><small id="res-alerta-nota"></small></li>
+        <li class="e-sem_dados"><span>Tempo sem dados</span><strong id="res-sem"></strong><small id="res-sem-nota"></small></li>
+      </ul>
+
+      <article id="cartao-hist" class="cartao grafico">
+        <header>
+          <div><h2 id="hist-titulo"></h2><p id="hist-grupo" class="nota"></p></div>
+          <p class="nota dica-zoom">Arraste no gráfico para ampliar</p>
+          <button id="hist-voltar" class="botao" type="button" hidden><svg class="ico" aria-hidden="true"><use href="img/icones.svg#lupa"/></svg><span>Desfazer zoom</span></button>
+        </header>
+        <div id="graf-hist" class="graf-caixa"></div>
+      </article>
+    </section>
+
+    <section id="config" class="pagina" aria-label="Configurações" hidden>
+      <form id="form-limites" class="cartao limites" novalidate>
+        <fieldset>
+          <legend>Faixas de temperatura (°C)</legend>
+          <div id="campos-temp"></div>
+          <p class="nota">Fora da faixa Ruim, a câmara entra em Alerta.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Limites de umidade (%)</legend>
+          <div id="campos-umid"></div>
+          <p class="nota">Abaixo do limite Ruim, a câmara entra em Alerta.</p>
+        </fieldset>
+        <fieldset class="extras">
+          <legend>Histerese e falta de dados</legend>
+          <div class="linha-campo"><label><span>Histerese da temperatura</span><input type="number" name="histerese.temp" step="0.1" required autocomplete="off"><em>°C</em></label><p class="campo-erro" id="erro-histerese-temp" data-erro="histerese.temp"></p></div>
+          <div class="linha-campo"><label><span>Histerese da umidade</span><input type="number" name="histerese.umid" step="0.1" required autocomplete="off"><em>%</em></label><p class="campo-erro" id="erro-histerese-umid" data-erro="histerese.umid"></p></div>
+          <div class="linha-campo"><label><span>Sem dados depois de</span><input type="number" name="sem_dados_min" step="1" required autocomplete="off"><em>min</em></label><p class="campo-erro" id="erro-sem_dados_min" data-erro="sem_dados_min"></p></div>
+        </fieldset>
+        <div class="salvar">
+          <label class="campo-token"><span><svg class="ico" aria-hidden="true"><use href="img/icones.svg#chave"/></svg>Token de administrador</span><input id="token" type="password" autocomplete="off" spellcheck="false" aria-describedby="erro-token"></label>
+          <button id="config-padrao" class="botao" type="button"><svg class="ico" aria-hidden="true"><use href="img/icones.svg#restaurar"/></svg><span>Restaurar padrão</span></button>
+          <button id="config-salvar" class="botao destaque" type="submit" disabled><svg class="ico" aria-hidden="true"><use href="img/icones.svg#salvar"/></svg><span>Salvar limites</span></button>
+          <p id="erro-token" class="campo-erro" role="alert"></p>
+          <p id="config-msg" role="status"></p>
+        </div>
+      </form>
+
+      <aside id="previa" class="cartao previa" aria-label="Prévia das faixas">
+        <h2>Prévia das faixas</h2>
+        <p class="nota">A linha preta marca a última leitura da câmara.</p>
+        <div class="previa-par">
+          <div><h3>Temperatura</h3><div class="previa-corpo"><div id="previa-temp"></div><ul id="previa-temp-lista"></ul></div></div>
+          <div><h3>Umidade</h3><div class="previa-corpo"><div id="previa-umid"></div><ul id="previa-umid-lista"></ul></div></div>
+        </div>
+        <p class="previa-aviso">Corrija os campos marcados para atualizar a prévia.</p>
+      </aside>
+    </section>
+  </main>
+</div>
+</body>
 </html>
