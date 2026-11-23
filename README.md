@@ -1,4 +1,4 @@
-# ITR Monitor Ambiental
+# ITR Monitor Ambiental (sensor de umidade)
 
 Monitoramento de temperatura e umidade da câmara úmida da ITR Engenharia.
 
