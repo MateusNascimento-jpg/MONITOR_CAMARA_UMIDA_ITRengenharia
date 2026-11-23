@@ -34,6 +34,7 @@ if (demo) api = demo.api;
 // ---- Estado da página ------------------------------------------------------
 
 let atual = null, desvioRelogio = 0;
+let pedido = 0, aplicado = 0; // consultas se cruzam: só vale a resposta mais nova
 let revelado = false; // a abertura segura a primeira pintura para as animações não tocarem escondidas
 const conexao = { servidorOk: true, falhaDesde: null };
 const agora = () => Date.now() + desvioRelogio;
@@ -53,8 +54,11 @@ function distribuir(forcar) {
 }
 
 async function consultar(forcar) {
+  const meu = ++pedido;
   try {
     const resp = await api.atual();
+    if (meu < aplicado) return;
+    aplicado = meu;
     atual = resp;
     desvioRelogio = Date.parse(resp.agora) - Date.now();
     conexao.servidorOk = true;
@@ -65,6 +69,8 @@ async function consultar(forcar) {
     pino.offsetWidth;
     pino.classList.add('pulso');
   } catch {
+    if (meu < aplicado) return;
+    aplicado = meu;
     if (conexao.servidorOk) conexao.falhaDesde = agora();
     conexao.servidorOk = false;
   }

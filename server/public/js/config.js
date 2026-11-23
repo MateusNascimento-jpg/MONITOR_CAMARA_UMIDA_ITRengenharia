@@ -34,6 +34,10 @@ export function criarConfig({ api, aoSalvar }) {
     return l;
   }
 
+  // O banco (JSONB) devolve as chaves em outra ordem: compara só os valores, em ordem fixa
+  const valores = (l) => JSON.stringify([FAIXAS.map((k) => [l.temp[k].min, l.temp[k].max, l.umid[k]]), l.histerese.temp, l.histerese.umid, l.sem_dados_min]);
+  const igual = (a, b) => valores(a) === valores(b);
+
   function escrever(l) {
     for (const k of FAIXAS) {
       el(`temp.${k}.min`).value = l.temp[k].min;
@@ -61,7 +65,7 @@ export function criarConfig({ api, aoSalvar }) {
     const valido = !Object.keys(erros).length;
     $('#previa').classList.toggle('invalida', !valido);
     if (valido) previa(l);
-    const mudou = salvos && JSON.stringify(l) !== JSON.stringify(salvos);
+    const mudou = salvos && !igual(l, salvos);
     editando = !!mudou;
     salvar.disabled = !mudou || !valido;
     return { l, valido };
@@ -90,7 +94,7 @@ export function criarConfig({ api, aoSalvar }) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const { l, valido } = conferir();
-    if (!valido) return;
+    if (!valido || salvar.classList.contains('ocupado')) return;
     if (!token.value) {
       $('#erro-token').textContent = 'Digite o token de administrador para salvar.';
       token.setAttribute('aria-invalid', 'true');
@@ -99,11 +103,16 @@ export function criarConfig({ api, aoSalvar }) {
     }
     salvar.classList.add('ocupado');
     recado('Salvando…');
+    const salvou = () => {
+      token.value = '';
+      recado(`Limites salvos. A placa recebe os novos valores no próximo envio.${editando ? ' Há alterações novas não salvas.' : ''}`, 'ok');
+    };
+    let incerto = false;
     try {
       salvos = await api.salvar(l, token.value);
-      token.value = '';
-      escrever(salvos);
-      recado('Limites salvos. A placa recebe os novos valores no próximo envio.', 'ok');
+      // Edição feita durante o salvamento não se perde: continua no formulário, por salvar
+      if (igual(ler(), l)) escrever(salvos); else conferir();
+      salvou();
       aoSalvar();
     } catch (err) {
       if (err.status === 401) {
@@ -111,16 +120,25 @@ export function criarConfig({ api, aoSalvar }) {
         token.setAttribute('aria-invalid', 'true');
         token.select();
         recado('Nada foi salvo.', 'erro');
-      } else recado(err.status === 400 ? `O servidor recusou: ${err.message}.` : 'Sem conexão com o servidor. Nada foi salvo; tente de novo.', 'erro');
+      } else if (err.status === 400) recado(`O servidor recusou: ${err.message}.`, 'erro');
+      else incerto = true;
     }
     salvar.classList.remove('ocupado');
+    if (incerto) {
+      // O servidor grava antes de responder: sem resposta, só relendo os limites dá para saber
+      recado('O servidor não confirmou. Conferindo os limites em vigor…');
+      await aoSalvar();
+      if (igual(salvos, l)) salvou();
+      else recado('O servidor não confirmou o salvamento. Confira a conexão e tente de novo.', 'erro');
+    }
   });
 
   return {
     receber(atual) {
       leitura = atual.leitura;
-      const novo = JSON.stringify(atual.limites) !== JSON.stringify(salvos);
-      if (novo && !editando) { salvos = atual.limites; escrever(salvos); }
+      if (salvar.classList.contains('ocupado') || (salvos && igual(atual.limites, salvos))) return;
+      salvos = atual.limites;
+      if (editando) conferir(); else escrever(salvos); // a edição em andamento fica no formulário
     },
   };
 }

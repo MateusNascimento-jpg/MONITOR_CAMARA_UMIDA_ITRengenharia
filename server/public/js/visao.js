@@ -22,11 +22,12 @@ export function criarVisao({ api, malha, agora }) {
     if (!limites) return;
     const meu = ++vez;
     const ate = agora();
-    $('#periodo-titulo').textContent = PERIODOS[horas];
+    const pedidas = horas;
     $('#cartao-graf').classList.add('carregando');
     try {
-      const serie = normalizar(await api.historico(ate - horas * HORA, ate));
+      const serie = normalizar(await api.historico(ate - pedidas * HORA, ate));
       if (meu !== vez) return;
+      $('#periodo-titulo').textContent = PERIODOS[pedidas];
       graf.mostrar(serie, limites, animar && (aberto ? 'trocar' : 'abrir'));
       aberto = true;
       extremosDoPeriodo(serie);
