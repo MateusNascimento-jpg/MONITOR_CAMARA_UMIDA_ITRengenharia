@@ -56,7 +56,7 @@ HTML, CSS e JS puros, sem build e sem CDN. Abre para qualquer pessoa com o link;
 | Página | O que mostra |
 |---|---|
 | Visão geral | Estado da câmara, temperatura e umidade nas faixas, última leitura, gráfico e tempo em cada estado (tela da TV) |
-| Histórico | Período livre, zoom por arraste e exportação em CSV |
+| Histórico | Período livre, zoom por arraste e exportação em planilha do Excel |
 | Configurações | Edição dos limites, com validação e prévia |
 
 - **Atualização:** consulta a API a cada 30 s. A câmara fica em "Sem dados" após `sem_dados_min` minutos sem leitura (padrão 25).
@@ -80,7 +80,8 @@ Trabalhe em um branch e abra um PR: o merge na `main` publica em produção pelo
 | POST | `/api/leituras` | ESP32 | header `x-api-key` |
 | GET | `/api/atual` | Dashboard | — |
 | GET | `/api/historico` | Dashboard | — |
-| GET | `/api/historico.csv` | Dashboard (exportar) | — |
+| GET | `/api/historico.xlsx` | Dashboard (exportar) | — |
+| GET | `/api/historico.csv` | Outros sistemas | — |
 | GET | `/api/limites` | Dashboard / ESP32 | — |
 | PUT | `/api/limites` | Dashboard (edição) | header `x-admin-token` |
 | GET | `/health` | Coolify | — |
@@ -96,6 +97,7 @@ Trabalhe em um branch e abra um PR: o merge na `main` publica em produção pelo
 O `auto` devolve leitura a leitura até 3 dias, e acima disso agrupa: por hora até 30 dias, a cada 6 h até 180 dias, por dia até 3 anos e por semana acima disso.
 Grupos trazem média, mínima, máxima, quantidade de leituras e o pior estado do período. Dias e semanas começam à meia-noite de Brasília.
 `/api/historico.csv` aceita o mesmo período e exporta leitura a leitura (separador `;`, vírgula decimal, horário de Brasília). Colunas: Data e hora (Brasília); Temperatura (°C); Umidade (%); Nível da temperatura; Nível da umidade; Estado geral — valores com 1 casa decimal e estados escritos por extenso (Ótimo, Bom, Médio, Ruim, Alerta).
+`/api/historico.xlsx` traz as mesmas linhas em planilha do Excel, com as colunas já largas (no CSV, o Excel mostra a data como `########`).
 Requer PostgreSQL 14 ou mais novo (`date_bin`).
 
 ### Contrato ESP32 → servidor
@@ -125,7 +127,7 @@ Sem dados: alarme após 25 min sem leitura. Todos os limites são editáveis via
 ### Robustez
 
 - Reenvio da mesma leitura com `ts` (mesmos valores e motivo, até 30 s) responde 200 sem gravar de novo.
-- 10 tokens errados em 15 min bloqueiam `PUT /api/limites` para aquele IP (429). `/api/historico` e o CSV aceitam 120 pedidos por minuto por IP.
+- 10 tokens errados em 15 min bloqueiam `PUT /api/limites` para aquele IP (429). `/api/historico`, a planilha e o CSV aceitam 120 pedidos por minuto por IP.
 - `/api/leituras` **nunca** deve responder 429 nem outro 4xx novo: a placa descarta a leitura em qualquer 4xx que não seja 401.
 - Com o banco travado, a API responde 500 em cerca de 5 s e a placa guarda a leitura na fila.
 

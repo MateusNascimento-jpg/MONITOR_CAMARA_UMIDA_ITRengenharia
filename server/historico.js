@@ -115,18 +115,17 @@ async function buscarHistorico(pool, deviceId, de, ate, agrupamentoPedido) {
 
 const NOMES_ESTADO = { otimo: 'Ótimo', bom: 'Bom', medio: 'Médio', ruim: 'Ruim', alerta: 'Alerta' };
 
-// CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília.
-// Sai em partes de LOTE_CSV leituras: anos de dados não cabem de uma vez na memória.
-async function* gerarCsv(pool, deviceId, de, ate) {
-  const num = (v) => Number(v).toFixed(1).replace('.', ',');
-  const nome = (estado) => NOMES_ESTADO[estado] || estado;
-  // BOM no início para o Excel reconhecer acentos (UTF-8)
-  let parte = '\ufeffData e hora (Brasília);Temperatura (°C);Umidade (%);Nível da temperatura;Nível da umidade;Estado geral\r\n';
+const COLUNAS = ['Data e hora (Brasília)', 'Temperatura (°C)', 'Umidade (%)', 'Nível da temperatura', 'Nível da umidade', 'Estado geral'];
+const nome = (estado) => NOMES_ESTADO[estado] || estado;
+
+// Lotes de LOTE_CSV leituras: anos de dados não cabem de uma vez na memória
+async function* lerLotes(pool, deviceId, de, ate) {
   let cursor = de, id = 0, linhas;
   do {
     const r = await pool.query({
       text: `SELECT id, medido_em::text AS cursor,
                     to_char(medido_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI:SS') AS data_hora,
+                    extract(epoch FROM date_trunc('second', medido_em AT TIME ZONE 'America/Sao_Paulo'))::float8 / 86400 + 25569 AS data_excel,
                     temp, umid, nivel_temp, nivel_umid, estado
                FROM leituras
               WHERE device_id = $1 AND (medido_em, id) > ($2::timestamptz, $3::bigint) AND medido_em <= $4
@@ -136,6 +135,17 @@ async function* gerarCsv(pool, deviceId, de, ate) {
       query_timeout: TEMPO_LONGO,
     });
     linhas = r.rows;
+    yield linhas;
+    if (linhas.length) ({ cursor, id } = linhas[linhas.length - 1]);
+  } while (linhas.length === LOTE_CSV);
+}
+
+// CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília
+async function* gerarCsv(pool, deviceId, de, ate) {
+  const num = (v) => Number(v).toFixed(1).replace('.', ',');
+  // BOM no início para o Excel reconhecer acentos (UTF-8)
+  let parte = `\uFEFF${COLUNAS.join(';')}\r\n`;
+  for await (const linhas of lerLotes(pool, deviceId, de, ate)) {
     for (const l of linhas) {
       parte += [
         l.data_hora, num(l.temp), num(l.umid),
@@ -144,8 +154,7 @@ async function* gerarCsv(pool, deviceId, de, ate) {
     }
     yield parte;
     parte = '';
-    if (linhas.length) ({ cursor, id } = linhas[linhas.length - 1]);
-  } while (linhas.length === LOTE_CSV);
+  }
 }
 
-module.exports = { lerPeriodo, buscarHistorico, gerarCsv, AGRUPAMENTOS };
+module.exports = { lerPeriodo, buscarHistorico, gerarCsv, lerLotes, COLUNAS, nome, AGRUPAMENTOS };

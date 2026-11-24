@@ -20,7 +20,7 @@ const iso = (t) => encodeURIComponent(new Date(t).toISOString());
 let api = {
   atual: () => pedir(`/api/atual?device_id=${DEVICE}`),
   historico: (de, ate) => pedir(`/api/historico?device_id=${DEVICE}&de=${iso(de)}&ate=${iso(ate)}`),
-  csv: (de, ate) => `/api/historico.csv?device_id=${DEVICE}&de=${iso(de)}&ate=${iso(ate)}`,
+  csv: (de, ate) => `/api/historico.xlsx?device_id=${DEVICE}&de=${iso(de)}&ate=${iso(ate)}`,
   salvar: async (limites, token) => (await pedir('/api/limites', {
     method: 'PUT',
     headers: { 'content-type': 'application/json', 'x-admin-token': token },

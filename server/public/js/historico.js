@@ -54,6 +54,7 @@ export function criarHistorico({ api, agora }) {
     }
     if (csv.href.startsWith('blob:')) URL.revokeObjectURL(csv.href);
     csv.href = api.csv(ini, fim);
+    csv.download = `camara-umida.${csv.href.startsWith('blob:') ? 'csv' : 'xlsx'}`; // a demonstração gera CSV
     erro.textContent = '';
     $('#cartao-hist').classList.add('carregando');
     try {

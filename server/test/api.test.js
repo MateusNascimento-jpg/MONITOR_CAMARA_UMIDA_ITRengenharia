@@ -3,6 +3,7 @@
 // DATABASE_URL=postgres://.../camara_teste npm test   (apaga os dados desse banco!)
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const zlib = require('node:zlib');
 
 if (!new URL(process.env.DATABASE_URL || 'postgres:').pathname.endsWith('teste')) throw new Error('use um banco com "teste" no nome');
 Object.assign(process.env, { API_KEY: 'chave', ADMIN_TOKEN: 'token' });
@@ -94,10 +95,34 @@ test('CSV sai inteiro e em ordem quando passa de um lote', async () => {
   assert.equal(linhas.at(-1).slice(0, 19), '07/01/2026 22:40:00');
 });
 
+test('planilha tem as mesmas linhas do CSV e a coluna da data larga', async () => {
+  await pool.query(`INSERT INTO leituras (device_id, temp, umid, medido_em, motivo, nivel_temp, nivel_umid, estado)
+    SELECT 'csv', 31.2, 79.96, '2025-12-31T23:59:59.9-03'::timestamptz, 'periodico', 4, 4, 'alerta'`);
+  const q = 'device_id=csv&de=2025-12-31T03:00:00Z&ate=2026-02-01T00:00:00Z';
+  const csv = (await pedir(`/api/historico.csv?${q}`)).texto.trimEnd().split('\r\n').slice(1);
+  const r = await fetch(`${base}/api/historico.xlsx?${q}`);
+  assert.match(r.headers.get('content-type'), /spreadsheetml\.sheet$/);
+  assert.match(r.headers.get('content-disposition'), /csv_2025-12-31_2026-02-01\.xlsx/);
+  const zip = Buffer.from(await r.arrayBuffer());
+  const i = zip.indexOf('xl/worksheets/sheet1.xml'); // nome no cabeçalho local; os dados vêm logo depois
+  const xml = zlib.inflateRawSync(zip.subarray(i + 24, i + 24 + zip.readUInt32LE(i - 12))).toString();
+  assert.equal(zlib.crc32(xml), zip.readUInt32LE(i - 16));
+  assert.ok(Number(xml.match(/<col min="1" max="1" width="(\d+)"/)[1]) >= 20);
+  const linhas = [...xml.matchAll(/<row>(.*?)<\/row>/g)].slice(1).map(([, l]) => {
+    const [dia, t, u, ...nomes] = [...l.matchAll(/<(?:v|t)>(.*?)<\//g)].map((m) => m[1]);
+    const d = new Date(Math.round((dia - 25569) * 86400) * 1000).toISOString();
+    return [`${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)} ${d.slice(11, 19)}`, t.replace('.', ','), u.replace('.', ','), ...nomes].join(';');
+  });
+  assert.equal(linhas.length, 10002);
+  assert.deepEqual(linhas, csv);
+  assert.equal((await pedir('/api/historico.xlsx?device_id=vazio')).status, 200);
+});
+
 test('parâmetros inválidos respondem 400, nunca 500', async () => {
   for (const q of ['agrupamento=toString', 'agrupamento=__proto__', 'agrupamento=2h', 'de=abc', 'de=-271821-04-20T00:00:00Z&ate=-271820-04-20T00:00:00Z', 'horas=0', 'device_id=A!']) {
     assert.equal((await pedir(`/api/historico?${q}`)).status, 400, q);
   }
+  for (const q of ['de=abc', 'device_id=A!']) assert.equal((await pedir(`/api/historico.xlsx?${q}`)).status, 400, q);
   assert.equal((await pedir('/api/atual')).headers.get('cache-control'), 'no-store');
 });
 
