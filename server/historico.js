@@ -117,6 +117,8 @@ const NOMES_ESTADO = { otimo: 'Ótimo', bom: 'Bom', medio: 'Médio', ruim: 'Ruim
 
 const COLUNAS = ['Data e hora (Brasília)', 'Temperatura (°C)', 'Umidade (%)', 'Nível da temperatura', 'Nível da umidade', 'Estado geral'];
 const nome = (estado) => NOMES_ESTADO[estado] || estado;
+// Mesmo arredondamento do painel: com toFixed, 23,95 sairia 23,9 e a tela mostra 24,0
+const num = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format;
 
 // Lotes de LOTE_CSV leituras: anos de dados não cabem de uma vez na memória
 async function* lerLotes(pool, deviceId, de, ate) {
@@ -142,7 +144,6 @@ async function* lerLotes(pool, deviceId, de, ate) {
 
 // CSV no padrão do Excel em português: separador ";", vírgula decimal e horário de Brasília
 async function* gerarCsv(pool, deviceId, de, ate) {
-  const num = (v) => Number(v).toFixed(1).replace('.', ',');
   // BOM no início para o Excel reconhecer acentos (UTF-8)
   let parte = `\uFEFF${COLUNAS.join(';')}\r\n`;
   for await (const linhas of lerLotes(pool, deviceId, de, ate)) {
@@ -157,4 +158,4 @@ async function* gerarCsv(pool, deviceId, de, ate) {
   }
 }
 
-module.exports = { lerPeriodo, buscarHistorico, gerarCsv, lerLotes, COLUNAS, nome, AGRUPAMENTOS };
+module.exports = { lerPeriodo, buscarHistorico, gerarCsv, lerLotes, COLUNAS, nome, num, AGRUPAMENTOS };
