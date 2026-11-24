@@ -97,7 +97,7 @@ test('CSV sai inteiro e em ordem quando passa de um lote', async () => {
 
 test('planilha tem as mesmas linhas do CSV e a coluna da data larga', async () => {
   await pool.query(`INSERT INTO leituras (device_id, temp, umid, medido_em, motivo, nivel_temp, nivel_umid, estado)
-    SELECT 'csv', 31.2, 79.96, '2025-12-31T23:59:59.9-03'::timestamptz, 'periodico', 4, 4, 'alerta'`);
+    SELECT 'csv', 23.95, 47.45, '2025-12-31T23:59:59.9-03'::timestamptz, 'periodico', 4, 4, 'alerta'`);
   const q = 'device_id=csv&de=2025-12-31T03:00:00Z&ate=2026-02-01T00:00:00Z';
   const csv = (await pedir(`/api/historico.csv?${q}`)).texto.trimEnd().split('\r\n').slice(1);
   const r = await fetch(`${base}/api/historico.xlsx?${q}`);
@@ -114,6 +114,7 @@ test('planilha tem as mesmas linhas do CSV e a coluna da data larga', async () =
     return [`${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)} ${d.slice(11, 19)}`, t.replace('.', ','), u.replace('.', ','), ...nomes].join(';');
   });
   assert.equal(linhas.length, 10002);
+  assert.match(csv[0], /;24,0;47,5;/); // como o painel mostra
   assert.deepEqual(linhas, csv);
   assert.equal((await pedir('/api/historico.xlsx?device_id=vazio')).status, 200);
 });

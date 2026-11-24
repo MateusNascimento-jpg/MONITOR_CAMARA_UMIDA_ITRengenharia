@@ -5,7 +5,7 @@
 const zlib = require('node:zlib');
 const { once } = require('node:events');
 const { NIVEIS } = require('./estado');
-const { lerLotes, COLUNAS, nome } = require('./historico');
+const { lerLotes, COLUNAS, nome, num } = require('./historico');
 
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const OX = 'http://schemas.openxmlformats.org';
@@ -25,6 +25,7 @@ const PARTES = {
 
 const texto = (v, estilo = 0) => `<c s="${estilo}" t="inlineStr"><is><t>${v}</t></is></c>`;
 const numero = (v, estilo) => `<c s="${estilo}"><v>${v}</v></c>`;
+const decimal = (v) => numero(num(v).replace(',', '.'), 3);
 
 async function* folha(lotes) {
   const colunas = LARGURAS.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
@@ -33,7 +34,7 @@ async function* folha(lotes) {
   for await (const linhas of lotes) {
     n += linhas.length;
     if (n > MAX_LINHAS) throw new Error('período grande demais para uma planilha');
-    yield linhas.map((l) => `<row>${numero(l.data_excel, 2)}${numero(Number(l.temp).toFixed(1), 3)}${numero(Number(l.umid).toFixed(1), 3)}${texto(nome(NIVEIS[l.nivel_temp]))}${texto(nome(NIVEIS[l.nivel_umid]))}${texto(nome(l.estado))}</row>`).join('');
+    yield linhas.map((l) => `<row>${numero(l.data_excel, 2)}${decimal(l.temp)}${decimal(l.umid)}${texto(nome(NIVEIS[l.nivel_temp]))}${texto(nome(NIVEIS[l.nivel_umid]))}${texto(nome(l.estado))}</row>`).join('');
   }
   yield '</sheetData></worksheet>';
 }
